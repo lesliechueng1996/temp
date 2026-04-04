@@ -55,3 +55,27 @@ export class ShellExecResult {
     readonly output: string,
   ) {}
 }
+
+export enum ShellWriteStatus {
+  SUCCESS = 'success',
+}
+
+export class ShellWriteResult {
+  constructor(
+    readonly sessionId: string,
+    readonly status: ShellWriteStatus,
+  ) {}
+}
+
+export enum ShellKillStatus {
+  TERMINATED = 'terminated',
+  ALREADY_TERMINATED = 'already_terminated',
+}
+
+export class ShellKillResult {
+  constructor(
+    readonly sessionId: string,
+    readonly status: ShellKillStatus,
+    readonly returnCode: number,
+  ) {}
+}

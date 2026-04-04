@@ -12,9 +12,13 @@ import {
   ConsoleRecord,
   Shell,
   ShellExecResult,
+  ShellKillResult,
+  ShellKillStatus,
   ShellStatus,
   ShellViewResult,
   ShellWaitResult,
+  ShellWriteResult,
+  ShellWriteStatus,
 } from '../models/shell.js';
 import { sleep } from '../util/sleep.js';
 
@@ -130,7 +134,7 @@ const getShell = (sessionId: string): Shell => {
   return shell;
 };
 
-const waitForProcess = async (
+export const waitForProcess = async (
   sessionId: string,
   seconds: number = 60,
 ): Promise<ShellWaitResult> => {
@@ -203,7 +207,7 @@ const getConsoleRecords = (shell: Shell): ConsoleRecord[] => {
   return cleanConsoleRecords;
 };
 
-const viewShell = (
+export const viewShell = (
   sessionId: string,
   console: boolean = false,
 ): ShellViewResult => {
@@ -302,6 +306,110 @@ export const execCommand = async (
     );
     throw new InternalServerErrorException(
       `Error executing command: ${command} in ${execDir} with sessionId: ${sessionId}, error: ${JSON.stringify(error)}`,
+    );
+  }
+};
+
+export const writeToProcess = async (
+  sessionId: string,
+  inputText: string,
+  pressEnter: boolean = false,
+): Promise<ShellWriteResult> => {
+  const shell = getShell(sessionId);
+  if (shell.process.exitCode !== null) {
+    logger.error('Process is finished: {sessionId}, cannot write to process', {
+      sessionId,
+    });
+    throw new BadRequestException(`Process is finished: ${sessionId}`);
+  }
+
+  try {
+    const lineEnding = '\n';
+
+    const finalInput = pressEnter ? inputText + lineEnding : inputText;
+    shell.output += finalInput;
+
+    if (shell.consoleRecords.length > 0) {
+      shell.consoleRecords[shell.consoleRecords.length - 1].output +=
+        finalInput;
+    }
+
+    const writePromise: Promise<void> = new Promise((resolve, reject) => {
+      shell.process.stdin?.write(finalInput, (error) => {
+        if (error) {
+          logger.error(
+            'Error writing to process: {sessionId}, error: {error}',
+            {
+              sessionId,
+              error,
+            },
+          );
+          reject(error);
+        }
+        resolve(void 0);
+      });
+    });
+
+    await writePromise;
+    if (pressEnter) {
+      await sleep(100);
+    }
+
+    return new ShellWriteResult(sessionId, ShellWriteStatus.SUCCESS);
+  } catch (error) {
+    logger.error('Error writing to process: {sessionId}, error: {error}', {
+      sessionId,
+      error,
+    });
+    throw new InternalServerErrorException(
+      `Error writing to process: ${sessionId}`,
+    );
+  }
+};
+
+export const killProcess = async (sessionId: string) => {
+  const shell = getShell(sessionId);
+
+  if (shell.process.exitCode !== null) {
+    logger.warn(
+      'Process is finished: {sessionId}, do not need to kill process',
+      { sessionId },
+    );
+    return new ShellKillResult(
+      sessionId,
+      ShellKillStatus.ALREADY_TERMINATED,
+      shell.process.exitCode,
+    );
+  }
+
+  try {
+    const processClosePromise = new Promise<number>((resolve, reject) => {
+      shell.process.on('close', (code) => {
+        if (code === null) {
+          logger.warning('Process exited with null code', { sessionId });
+          reject(
+            new InternalServerErrorException('Process exited with null code'),
+          );
+          return;
+        }
+        resolve(code);
+      });
+    });
+
+    shell.process.kill();
+    const returnCode = await processClosePromise;
+    return new ShellKillResult(
+      sessionId,
+      ShellKillStatus.TERMINATED,
+      returnCode,
+    );
+  } catch (error) {
+    logger.error('Error killing process: {sessionId}, error: {error}', {
+      sessionId,
+      error,
+    });
+    throw new InternalServerErrorException(
+      `Error killing process: ${sessionId}`,
     );
   }
 };

@@ -1,6 +1,13 @@
 import { homedir } from 'node:os';
 import { Hono } from 'hono';
-import { createSessionId, execCommand } from '../../service/shell-service.js';
+import {
+  createSessionId,
+  execCommand,
+  killProcess,
+  viewShell,
+  waitForProcess,
+  writeToProcess,
+} from '../../service/shell-service.js';
 import { zValidator } from '../../util/validator-wrapper.js';
 import { createSuccessResponse } from '../schema/base.js';
 import {
@@ -29,25 +36,41 @@ shellRouter.post(
 shellRouter.post(
   '/view-shell',
   zValidator('json', viewShellRequestSchema),
-  async () => {},
+  async (c) => {
+    const { sessionId, console } = c.req.valid('json');
+    const result = viewShell(sessionId, console);
+    return c.json(createSuccessResponse(result));
+  },
 );
 
 shellRouter.post(
   '/wai-for-process',
   zValidator('json', waitForProcessRequestSchema),
-  async (c) => {},
+  async (c) => {
+    const { sessionId, seconds } = c.req.valid('json');
+    const result = await waitForProcess(sessionId, seconds);
+    return c.json(createSuccessResponse(result));
+  },
 );
 
 shellRouter.post(
   'write-to-process',
   zValidator('json', writeToProcessRequestSchema),
-  async () => {},
+  async (c) => {
+    const { sessionId, inputText, pressEnter } = c.req.valid('json');
+    const result = await writeToProcess(sessionId, inputText, pressEnter);
+    return c.json(createSuccessResponse(result));
+  },
 );
 
 shellRouter.post(
   '/kill-process',
   zValidator('json', shellKillRequestSchema),
-  async () => {},
+  async (c) => {
+    const { sessionId } = c.req.valid('json');
+    const result = await killProcess(sessionId);
+    return c.json(createSuccessResponse(result));
+  },
 );
 
 export default shellRouter;
