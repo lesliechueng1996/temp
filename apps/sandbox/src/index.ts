@@ -7,7 +7,7 @@ import fileRouter from './interface/endpoint/file-router.js';
 import shellRouter from './interface/endpoint/shell-router.js';
 import { BaseException } from './interface/exception/index.js';
 import { createErrorResponse } from './interface/schema/base.js';
-import supervisorRouter from './interface/endpoint/supervisor-router.js';
+// import supervisorRouter from './interface/endpoint/supervisor-router.js';
 
 await initLogger();
 
@@ -33,7 +33,7 @@ app.onError((err, c) => {
 
 app.route('/shell', shellRouter);
 app.route('/file', fileRouter);
-app.route('/supervisor', supervisorRouter);
+// app.route('/supervisor', supervisorRouter);
 
 serve(
   {
