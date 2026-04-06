@@ -1,6 +1,6 @@
 import type { Event } from '@/domain/model/event';
 import type { File } from '@/domain/model/file';
-import type { Memory } from '@/domain/model/memory';
+import { Memory } from '@/domain/model/memory';
 import type { Session, SessionStatus } from '@/domain/model/session';
 import type { SessionRepository } from '@/domain/repository/session-repository';
 
@@ -93,11 +93,15 @@ export class MemorySessionRepository implements SessionRepository {
     return Promise.resolve();
   }
 
-  getMemory(id: string, agentName: string): Promise<Memory | null> {
+  getMemory(id: string, agentName: string): Promise<Memory> {
     const existingSession = sessions.find((s) => s.id === id);
+    let memory: Memory | null = null;
     if (existingSession) {
-      return Promise.resolve(existingSession.memories[agentName] ?? null);
+      memory = existingSession.memories[agentName] ?? null;
     }
-    return Promise.resolve(null);
+    if (memory === null) {
+      memory = new Memory();
+    }
+    return Promise.resolve(memory);
   }
 }

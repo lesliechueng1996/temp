@@ -14,9 +14,6 @@ type Message =
   | ToolMessage
   | Record<string, unknown>;
 
-// TODO: Implement this
-const compactFunctionNames = [''];
-
 export const getMessageRole = (message: Message) => {
   return message.role as string;
 };
@@ -45,21 +42,6 @@ export class Memory {
 
   rollBack() {
     this.messages.pop();
-  }
-
-  compact() {
-    for (const message of this.messages) {
-      if (getMessageRole(message) === 'tool') {
-        const toolMessage = message as ToolMessage;
-        if (compactFunctionNames.includes(toolMessage.functionName)) {
-          // TODO: Implement this
-          toolMessage.content = '(removed)';
-          logger.info(
-            `Removed tool call message, function name: ${toolMessage.functionName}`,
-          );
-        }
-      }
-    }
   }
 
   isEmpty() {

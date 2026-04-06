@@ -12,5 +12,5 @@ export enum FlowStatus {
 
 export interface BaseFlow {
   invoke(message: Message): AsyncGenerator<Event>;
-  done(): Promise<boolean>;
+  done(): boolean;
 }

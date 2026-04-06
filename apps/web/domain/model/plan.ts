@@ -62,7 +62,7 @@ export class Plan {
     );
   }
 
-  getNextStep(): Step | undefined {
-    return this.steps.find((step) => !step.isDone());
+  getNextStep(): Step | null {
+    return this.steps.find((step) => !step.isDone()) ?? null;
   }
 }

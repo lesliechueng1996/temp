@@ -47,7 +47,6 @@ export class ReActAgent extends BaseAgent {
           if (event.status === ToolEventStatus.CALLING) {
             yield new MessageEvent({
               role: 'assistant',
-              // TODO, wait implement message ask user tool
               message: event.functionArguments.text as string,
             });
           } else if (event.status === ToolEventStatus.CALLED) {

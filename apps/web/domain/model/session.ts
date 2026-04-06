@@ -36,8 +36,10 @@ export class Session {
     this.updatedAt = overrides?.updatedAt ?? new Date();
   }
 
-  getLastPlan(): Plan | undefined {
-    return this.events.toReversed().find((event) => event instanceof PlanEvent)
-      ?.plan;
+  getLatestPlan(): Plan | null {
+    return (
+      this.events.toReversed().find((event) => event instanceof PlanEvent)
+        ?.plan ?? null
+    );
   }
 }

@@ -12,6 +12,10 @@ import {
 import type { Memory } from '@/domain/model/memory';
 import type { Message } from '@/domain/model/message';
 import type { ToolResult } from '@/domain/model/tool-result';
+import {
+  getSessionRepository,
+  type SessionRepository,
+} from '@/domain/repository/session-repository';
 import { logger } from '@/infrastructure/logger';
 import type { ToolCollection } from '../tools/base';
 
@@ -25,9 +29,9 @@ type ToolCall = {
 };
 
 type BaseAgentParams = {
+  sessionId: string;
   agentConfig: AgentConfig;
   llm: LlmClient;
-  memory: Memory;
   jsonParser: JsonParser;
   tools: Array<ToolCollection>;
 };
@@ -47,29 +51,45 @@ export class BaseAgent {
   protected readonly retryInterval: number = 1;
   protected readonly toolChoice: string | null = null;
 
+  protected readonly sessionId: string;
   protected readonly agentConfig: AgentConfig;
   protected readonly llm: LlmClient;
-  protected readonly memory: Memory;
+  protected memory: Memory | null = null;
   protected readonly jsonParser: JsonParser;
   protected readonly tools: Array<ToolCollection>;
+
+  private readonly sessionRepository: SessionRepository;
 
   constructor(params: BaseAgentParams, overrides: Partial<BaseAgentData> = {}) {
     Object.assign(this, overrides);
     this.agentConfig = params.agentConfig;
     this.llm = params.llm;
-    this.memory = params.memory;
+    this.sessionId = params.sessionId;
     this.jsonParser = params.jsonParser;
     this.tools = params.tools;
+    this.sessionRepository = getSessionRepository();
   }
 
-  protected addToMemory(messages: Array<Record<string, unknown>>) {
-    if (this.memory.isEmpty()) {
-      this.memory.addMessage({
+  private async ensureMemory() {
+    if (this.memory === null) {
+      this.memory = await this.sessionRepository.getMemory(
+        this.sessionId,
+        this.name,
+      );
+    }
+    return this.memory;
+  }
+
+  protected async addToMemory(messages: Array<Record<string, unknown>>) {
+    const memory = await this.ensureMemory();
+    if (memory.isEmpty()) {
+      memory.addMessage({
         role: 'system',
         content: this.systemPrompt,
       });
     }
-    this.memory.addMessages(messages);
+    memory.addMessages(messages);
+    await this.sessionRepository.saveMemory(this.sessionId, this.name, memory);
   }
 
   protected getFormattedTools() {
@@ -82,14 +102,15 @@ export class BaseAgent {
     messages: Array<Record<string, unknown>>,
     format: string | null = null,
   ) {
-    this.addToMemory(messages);
+    await this.addToMemory(messages);
+    const memory = await this.ensureMemory();
     const responseFormat = format ? { type: format } : undefined;
 
     let runIndex = 0;
     while (runIndex < this.agentConfig.maxRetries) {
       try {
         const message = await this.llm.invoke({
-          messages,
+          messages: memory.getMessages(),
           tools: this.getFormattedTools(),
           responseFormat,
           toolChoice: this.toolChoice ?? undefined,
@@ -98,7 +119,7 @@ export class BaseAgent {
         if (message.role === 'assistant') {
           if (!message.content && !message.tool_calls) {
             logger.warn('Assistant message is empty');
-            this.addToMemory([
+            await this.addToMemory([
               { role: 'assistant', content: '' },
               {
                 role: 'user',
@@ -123,10 +144,10 @@ export class BaseAgent {
             // Only call 1 tool at a time
             filteredMessage.tool_calls = [message.tool_calls[0]];
           }
-          this.addToMemory([filteredMessage]);
+          await this.addToMemory([filteredMessage]);
         } else {
           logger.warn(`Unexpected message role: ${message.role}`);
-          this.addToMemory([message]);
+          await this.addToMemory([message]);
         }
         return message;
       } catch (error) {
@@ -269,12 +290,9 @@ export class BaseAgent {
     return this.memory;
   }
 
-  protected compactMemory() {
-    this.memory.compact();
-  }
-
-  protected rollBack(message: Message) {
-    const lastMessage = this.memory.getLastMessage() as Record<string, unknown>;
+  async rollBack(message: Message) {
+    const memory = await this.ensureMemory();
+    const lastMessage = memory.getLastMessage() as Record<string, unknown>;
     if (
       !lastMessage?.tool_calls ||
       (Array.isArray(lastMessage.tool_calls) &&
@@ -286,14 +304,16 @@ export class BaseAgent {
     const functionName = toolCall.function?.name;
     const toolCallId = toolCall.id;
     if (functionName === 'message_ask_user') {
-      this.memory.addMessage({
+      memory.addMessage({
         role: 'tool',
         tool_call_id: toolCallId,
         function_name: functionName,
         content: JSON.stringify(message),
       });
     } else {
-      this.memory.rollBack();
+      memory.rollBack();
     }
+
+    await this.sessionRepository.saveMemory(this.sessionId, this.name, memory);
   }
 }

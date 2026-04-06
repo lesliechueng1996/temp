@@ -16,7 +16,7 @@ export interface SessionRepository {
   removeFile(id: string, fileId: string): Promise<void>;
   getFileByPath(id: string, path: string): Promise<File | null>;
   saveMemory(id: string, agentName: string, memory: Memory): Promise<void>;
-  getMemory(id: string, agentName: string): Promise<Memory | null>;
+  getMemory(id: string, agentName: string): Promise<Memory>;
 }
 
 export const getSessionRepository = (): SessionRepository => {
