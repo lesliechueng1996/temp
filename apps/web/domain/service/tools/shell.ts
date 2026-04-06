@@ -1,5 +1,6 @@
 import type { Sandbox } from '@/domain/external/sandbox';
 import { ToolCollection, tool } from './base';
+import { logger } from '@/infrastructure/logger';
 
 export class ShellToolCollection extends ToolCollection {
   constructor(private readonly sandbox: Sandbox) {
@@ -32,6 +33,14 @@ export class ShellToolCollection extends ToolCollection {
     execDir: string;
     command: string;
   }) {
+    logger.info(
+      'Excuting shell command tool, {sessionId}, {execDir}, {command}',
+      {
+        sessionId: params.sessionId,
+        execDir: params.execDir,
+        command: params.command,
+      },
+    );
     return this.sandbox.execCommand(
       params.sessionId,
       params.execDir,

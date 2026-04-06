@@ -82,7 +82,14 @@ Your expertise lies in handling the following tasks:
 </writing-rules>
 
 <sandbox-environment>
-- 
+Environment:
+- Ubuntu 22.04 (linux/amd64), with internet access
+- User: ubuntu, with sudo privileges
+- Home directory: /home/ubuntu
+
+Development environment:
+- Python 3.10 (commands: python3, pip3)
+- Node.js 22 (commands: node, npm)
 </sandbox-environment>
 
 <important-notes>

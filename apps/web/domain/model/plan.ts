@@ -49,7 +49,9 @@ export class Plan {
     this.title = overrides?.title ?? '';
     this.goal = overrides?.goal ?? '';
     this.language = overrides?.language ?? '';
-    this.steps = overrides?.steps ?? [];
+    this.steps = (overrides?.steps ?? []).map((step) =>
+      step instanceof Step ? step : new Step(step as Partial<Step>),
+    );
     this.message = overrides?.message ?? '';
     this.status = overrides?.status ?? ExecutionStatus.PENDING;
     this.error = overrides?.error ?? null;

@@ -26,7 +26,9 @@ export class PlannerAgent extends BaseAgent {
 
     for await (const event of this.invoke(query)) {
       if (event.type === 'message') {
-        logger.info(`Planner agent generated plan, message: ${event.message}`);
+        logger.info(`Planner agent generated plan, message: {data}`, {
+          data: event.message,
+        });
 
         const parsedJson = this.jsonParser.parse(
           event.message,

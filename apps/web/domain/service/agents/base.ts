@@ -140,16 +140,20 @@ export class BaseAgent {
             content: message.content as string,
             tool_calls: null,
           };
+          if (message.reasoning_content) {
+            filteredMessage.content = message.reasoning_content as string;
+          }
           if (message.tool_calls && Array.isArray(message.tool_calls)) {
             // Only call 1 tool at a time
             filteredMessage.tool_calls = [message.tool_calls[0]];
           }
           await this.addToMemory([filteredMessage]);
+          return filteredMessage;
         } else {
           logger.warn(`Unexpected message role: ${message.role}`);
           await this.addToMemory([message]);
+          return message;
         }
-        return message;
       } catch (error) {
         logger.error('Failed to invoke LLM', { error });
         await new Promise((resolve) =>
@@ -164,7 +168,7 @@ export class BaseAgent {
   }
 
   protected getTool(toolName: string) {
-    return this.tools.find((tool) => tool.collectionName === toolName);
+    return this.tools.find((tool) => tool.hasTool(toolName));
   }
 
   protected async invokeTool(
@@ -177,6 +181,10 @@ export class BaseAgent {
     while (toolRetryIndex < this.agentConfig.maxRetries) {
       try {
         const result = await toolCollection.invokeTool(toolName, toolArguments);
+        logger.info('Tool invoked, toolName: {toolName}, result: {result}', {
+          toolName,
+          result,
+        });
         if (!result) {
           throw new Error(`Failed to invoke tool ${toolName}`);
         }
@@ -231,8 +239,19 @@ export class BaseAgent {
           const functionArguments = this.jsonParser.parse(
             toolCall.function.arguments,
           ) as Record<string, unknown>;
+          logger.info(
+            'Invoking tool, toolCallId: {toolCallId}, functionName: {functionName}, functionArguments: {functionArguments}',
+            {
+              toolCallId,
+              functionName,
+              functionArguments,
+            },
+          );
           const tool = this.getTool(functionName);
           if (!tool) {
+            logger.error('Tool not found, functionName: {functionName}', {
+              functionName,
+            });
             continue;
           }
 
@@ -268,6 +287,7 @@ export class BaseAgent {
         }
 
         message = await this.invokeLLM(toolMessages);
+        console.log(message);
       }
 
       if (iterationIndex >= this.agentConfig.maxIterations) {

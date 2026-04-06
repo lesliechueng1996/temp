@@ -520,6 +520,10 @@ export class DockerSandbox implements Sandbox {
       },
     });
     const data = await response.json();
+    logger.info('Exec command response, {response}, {status}', {
+      response: data,
+      status: response.status,
+    });
     if (response.status === 200 && data) {
       return ToolResult.fromSandbox(data.code, data.msg, data.data);
     }

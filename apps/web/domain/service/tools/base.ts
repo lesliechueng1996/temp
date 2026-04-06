@@ -1,6 +1,9 @@
 import type { ToolResult } from '@/domain/model/tool-result';
 
-type ToolFunction<TArg, TRes> = (arg: TArg) => Promise<ToolResult<TRes>>;
+type ToolInvoke<TArg, TRes> = (
+  receiver: ToolCollection,
+  arg: TArg,
+) => Promise<ToolResult<TRes>>;
 
 export type ToolSchema = {
   type: 'function';
@@ -22,13 +25,13 @@ export interface BaseTool {
 }
 
 export class Tool<TArg, TRes> implements BaseTool {
-  private readonly func: ToolFunction<TArg, TRes>;
+  private readonly invokeImpl: ToolInvoke<TArg, TRes>;
   readonly toolName: string;
   readonly toolDescription: string;
   readonly toolSchema: ToolSchema;
 
   constructor(params: {
-    func: ToolFunction<TArg, TRes>;
+    invoke: ToolInvoke<TArg, TRes>;
     name: string;
     description: string;
     parameters: Record<string, Record<string, unknown>>;
@@ -48,11 +51,11 @@ export class Tool<TArg, TRes> implements BaseTool {
     };
     this.toolName = params.name;
     this.toolDescription = params.description;
-    this.func = params.func;
+    this.invokeImpl = params.invoke;
   }
 
-  async invoke(arg: TArg): Promise<ToolResult<TRes>> {
-    return this.func(arg);
+  async invoke(receiver: ToolCollection, arg: TArg): Promise<ToolResult<TRes>> {
+    return this.invokeImpl(receiver, arg);
   }
 }
 
@@ -63,37 +66,39 @@ type ToolConstructor = {
 };
 
 export const tool = (
-  params: Omit<ConstructorParameters<typeof Tool>[0], 'func'>,
+  params: Omit<ConstructorParameters<typeof Tool>[0], 'invoke'>,
 ) => {
-  return <This, TArg, TRes>(
-    target: (this: This, arg: TArg) => Promise<ToolResult<TRes>>,
-    context: ClassMethodDecoratorContext<
-      This,
-      (this: This, arg: TArg) => Promise<ToolResult<TRes>>
-    >,
+  return (
+    target: object,
+    _propertyKey: string | symbol,
+    // biome-ignore lint/suspicious/noExplicitAny: legacy decorator must accept any method shape
+    descriptor: TypedPropertyDescriptor<any>,
   ) => {
-    context.addInitializer(function (this: This) {
-      if (!this) {
-        return;
-      }
-      const ctor = this.constructor as ToolConstructor;
+    const original = descriptor.value;
+    if (!original) {
+      return;
+    }
 
-      if (!ctor[TOOL_SET_KEY]) {
-        ctor[TOOL_SET_KEY] = new Map<string, BaseTool>();
-      }
+    const ctor = target.constructor as ToolConstructor;
+    if (!ctor[TOOL_SET_KEY]) {
+      ctor[TOOL_SET_KEY] = new Map<string, BaseTool>();
+    }
+    const toolMap = ctor[TOOL_SET_KEY];
+    if (!toolMap) {
+      return;
+    }
 
-      const toolMap = ctor[TOOL_SET_KEY];
-      if (toolMap) {
-        const toolInstance = new Tool<TArg, TRes>({
-          func: target,
-          name: params.name,
-          description: params.description,
-          parameters: params.parameters,
-          required: params.required,
-        });
-        toolMap.set(params.name, toolInstance);
-      }
-    });
+    toolMap.set(
+      params.name,
+      new Tool({
+        invoke: (receiver, arg) =>
+          original.call(receiver, arg) as Promise<ToolResult<unknown>>,
+        name: params.name,
+        description: params.description,
+        parameters: params.parameters,
+        required: params.required,
+      }),
+    );
   };
 };
 
@@ -135,7 +140,7 @@ export class ToolCollection {
       throw new Error(`Tool ${toolName} not found`);
     }
     const filteredParameters = filterToolParameters<TArg>(tool, parameters);
-    const result = await tool.invoke(filteredParameters);
+    const result = await tool.invoke(this, filteredParameters);
     return result;
   }
 }

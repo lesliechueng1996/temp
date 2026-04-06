@@ -61,7 +61,7 @@ export class PlannerReActFlow implements BaseFlow {
       agentConfig,
       llm,
       jsonParser,
-      tools,
+      tools: [],
     });
     logger.info(`Planner agent initialized, sessionId: ${sessionId}`);
 
@@ -151,7 +151,7 @@ export class PlannerReActFlow implements BaseFlow {
           }
           yield event;
         }
-        logger.info('PlannerReAct flow RUNNING -> EXECUTING', {
+        logger.info('PlannerReAct flow RUNNING -> EXECUTING {sessionId}', {
           sessionId: this.sessionId,
         });
         this.status = FlowStatus.EXECUTING;
@@ -162,7 +162,7 @@ export class PlannerReActFlow implements BaseFlow {
         }
       } else if (this.status === FlowStatus.EXECUTING) {
         if (!this.plan) {
-          logger.error('PlannerReAct no plan found', {
+          logger.error('PlannerReAct no plan found, {sessionId}', {
             sessionId: this.sessionId,
           });
           throw new InternalServerErrorException('No plan found');
@@ -171,21 +171,27 @@ export class PlannerReActFlow implements BaseFlow {
         this.plan.status = ExecutionStatus.RUNNING;
         step = this.plan.getNextStep();
         if (!step) {
-          logger.info('PlannerReAct no next step found', {
+          logger.info('PlannerReAct no next step found, {sessionId}', {
             sessionId: this.sessionId,
           });
-          logger.info('PlannerReAct flow EXECUTING -> SUMMARIZING', {
-            sessionId: this.sessionId,
-          });
+          logger.info(
+            'PlannerReAct flow EXECUTING -> SUMMARIZING, {sessionId}',
+            {
+              sessionId: this.sessionId,
+            },
+          );
           this.status = FlowStatus.SUMMARIZING;
           continue;
         }
 
-        logger.info('PlannerReAct start to execute step', {
-          sessionId: this.sessionId,
-          stepId: step.id,
-          stepDescription: step.description.substring(0, 50),
-        });
+        logger.info(
+          'PlannerReAct start to execute step, {sessionId}, {stepId}, {stepDescription}',
+          {
+            sessionId: this.sessionId,
+            stepId: step.id,
+            stepDescription: step.description.substring(0, 50),
+          },
+        );
         for await (const event of this.reactAgent.executeStep(
           this.plan,
           step,
@@ -193,7 +199,7 @@ export class PlannerReActFlow implements BaseFlow {
         )) {
           yield event;
         }
-        logger.info('PlannerReAct flow EXECUTING -> UPDATING', {
+        logger.info('PlannerReAct flow EXECUTING -> UPDATING, {sessionId}', {
           sessionId: this.sessionId,
         });
         this.status = FlowStatus.UPDATING;
