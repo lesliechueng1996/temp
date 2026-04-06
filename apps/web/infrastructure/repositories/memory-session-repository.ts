@@ -1,8 +1,8 @@
-import type { SessionRepository } from '@/domain/repository/session-repository';
-import type { Session, SessionStatus } from '@/domain/model/session';
 import type { Event } from '@/domain/model/event';
 import type { File } from '@/domain/model/file';
 import type { Memory } from '@/domain/model/memory';
+import type { Session, SessionStatus } from '@/domain/model/session';
+import type { SessionRepository } from '@/domain/repository/session-repository';
 
 const sessions: Session[] = [];
 

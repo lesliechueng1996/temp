@@ -1,8 +1,8 @@
-import type { Session, SessionStatus } from '../model/session';
+import { MemorySessionRepository } from '@/infrastructure/repositories/memory-session-repository';
 import type { Event } from '../model/event';
 import type { File } from '../model/file';
 import type { Memory } from '../model/memory';
-import { MemorySessionRepository } from '@/infrastructure/repositories/memory-session-repository';
+import type { Session, SessionStatus } from '../model/session';
 
 export interface SessionRepository {
   save(session: Session): Promise<void>;

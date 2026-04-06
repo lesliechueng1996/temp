@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { PlanEvent, type Event } from './event';
+import { type Event, PlanEvent } from './event';
 import type { File } from './file';
 import type { Memory } from './memory';
 import type { Plan } from './plan';

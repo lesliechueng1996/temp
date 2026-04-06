@@ -1,6 +1,6 @@
 import { Session } from '@/domain/model/session';
-import { logger } from '@/util/logger';
 import { getSessionRepository } from '@/domain/repository/session-repository';
+import { logger } from '@/infrastructure/logger';
 
 export const createSession = async () => {
   const session = new Session({
