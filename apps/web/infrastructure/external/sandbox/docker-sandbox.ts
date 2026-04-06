@@ -65,10 +65,17 @@ export class DockerSandbox implements Sandbox {
     const image = process.env.SANDBOX_IMAGE;
     const namePrefix = process.env.SANDBOX_NAME_PREFIX;
     const containerName = `${namePrefix}-${randomUUID().substring(0, 8)}`;
+    logger.info(
+      'Creating sandbox task, image: {image}, namePrefix: {namePrefix}, containerName: {containerName}',
+      {
+        image,
+        namePrefix,
+        containerName,
+      },
+    );
     try {
       const env = {
         SERVICE_TIMEOUT_MINUTES: process.env.SANDBOX_TTL_MINUTES,
-        CHROME_ARGS: process.env.SANDBOX_CHROME_ARGS,
         HTTPS_PROXY: process.env.SANDBOX_HTTPS_PROXY,
         HTTP_PROXY: process.env.SANDBOX_HTTP_PROXY,
         NO_PROXY: process.env.SANDBOX_NO_PROXY,
@@ -93,6 +100,7 @@ export class DockerSandbox implements Sandbox {
       await container.start();
 
       const ip = await DockerSandbox.getContainerIp(container);
+      logger.info('Sandbox created, ip: {ip}', { ip });
 
       return new DockerSandbox(ip, containerName);
     } catch (err) {
@@ -148,64 +156,22 @@ export class DockerSandbox implements Sandbox {
 
     for (let i = 0; i < maxRetries; i++) {
       try {
-        const response = await fetch(`${this.baseUrl}/supervisor/status`);
+        const response = await fetch(`${this.baseUrl}/status`);
 
         if (response.status >= 300) {
-          throw new Error(
-            `Sandbox Supervisor process status is ${response.status}`,
-          );
+          throw new Error(`Sandbox status is ${response.status}`);
         }
 
         const data = await response.json();
 
         if (!data) {
-          throw new Error(
-            'No response data from Sandbox Supervisor process status',
-          );
+          throw new Error('No response data from Sandbox status');
         }
 
-        const toolResult = ToolResult.fromSandbox(
-          data.code,
-          data.msg,
-          data.data,
-        );
-        if (!toolResult.success) {
-          throw new Error(
-            `Supervisor process status monitor failed, ${toolResult.message}`,
-          );
-        }
-        const services = toolResult.data || [];
-        if (services.length === 0) {
-          throw new Error('No services found from Supervisor');
-        }
-
-        let allRunning = true;
-        const nonRunningServices: string[] = [];
-        for (const service of services) {
-          const serviceName = service.name;
-          const stateName = service.statename;
-
-          if (stateName !== 'running') {
-            allRunning = false;
-            nonRunningServices.push(`${serviceName}(${stateName})`);
-          }
-        }
-
-        if (!allRunning) {
-          logger.info(
-            'Waiting Sandbox Supervisor services running, pending services: {nonRunningServices}',
-            { nonRunningServices },
-          );
-          throw new Error('Waiting Sandbox Supervisor services running');
-        }
-
-        logger.info(
-          'All services in Sandbox Supervisor are running successfully',
-        );
         return;
       } catch (err) {
         logger.warn(
-          'Cannot ensure Sandbox Supervisor process status, retrying... {retries}, {error}',
+          'Cannot ensure Sandbox status, retrying... {retries}, {error}',
           { retries: i, error: err },
         );
         await new Promise((resolve) =>
@@ -215,10 +181,10 @@ export class DockerSandbox implements Sandbox {
     }
 
     logger.error(
-      'Cannot ensure Sandbox Supervisor process status, giving up after {maxRetries} retries',
+      'Cannot ensure Sandbox status, giving up after {maxRetries} retries',
       { maxRetries },
     );
-    throw new Error('Cannot ensure Sandbox Supervisor process status');
+    throw new Error('Cannot ensure Sandbox status');
   }
 
   async fileRead(

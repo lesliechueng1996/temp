@@ -32,6 +32,8 @@ export const chat = async function* (
 
     const sandbox = await getSandbox();
     logger.info('Sandbox created');
+    await sandbox.ensureSandbox();
+    logger.info('Sandbox ensured');
     const llm = await getLlm();
     logger.info('LLM created');
     const jsonParser = await getJsonParser();
