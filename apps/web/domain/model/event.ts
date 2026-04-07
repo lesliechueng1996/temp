@@ -79,11 +79,11 @@ export class MessageEvent extends BaseEvent {
   }
 }
 
-class ShellToolContent {
+export class ShellToolContent {
   constructor(readonly console: unknown) {}
 }
 
-class FileToolContent {
+export class FileToolContent {
   constructor(readonly content: string) {}
 }
 

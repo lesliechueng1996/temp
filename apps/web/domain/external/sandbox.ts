@@ -146,7 +146,3 @@ export namespace Sandbox {
   export declare function create(): Sandbox;
   export declare function get(id: string): Sandbox;
 }
-
-export const getSandbox = async (): Promise<Sandbox> => {
-  return await DockerSandbox.create();
-};
