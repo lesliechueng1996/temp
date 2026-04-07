@@ -8,7 +8,64 @@ import { logger } from '@/infrastructure/logger';
 
 const ipSchema = z.ipv4();
 
-const createDockerClient = () => new Docker();
+const getContainerEngineAddress = (): string | null =>
+  process.env.SANDBOX_CONTAINER_ENGINE_HOST?.trim() ||
+  process.env.DOCKER_HOST?.trim() ||
+  null;
+
+const getContainerEngineSocketPath = (): string | null =>
+  process.env.SANDBOX_CONTAINER_ENGINE_SOCKET?.trim() ||
+  process.env.DOCKER_SOCKET_PATH?.trim() ||
+  null;
+
+const createDockerClient = () => {
+  const socketPath = getContainerEngineSocketPath();
+  if (socketPath) {
+    return new Docker({ socketPath });
+  }
+
+  const engineAddress = getContainerEngineAddress();
+  if (!engineAddress) {
+    return new Docker();
+  }
+
+  if (engineAddress.startsWith('unix://')) {
+    return new Docker({ socketPath: engineAddress.replace('unix://', '') });
+  }
+
+  if (engineAddress.startsWith('tcp://')) {
+    const url = new URL(engineAddress.replace('tcp://', 'http://'));
+    return new Docker({
+      protocol: 'http',
+      host: url.hostname,
+      port: url.port ? parseInt(url.port, 10) : 2375,
+    });
+  }
+
+  logger.warn(
+    'Unsupported container engine address format: {engineAddress}, fallback to default dockerode config',
+    { engineAddress },
+  );
+  return new Docker();
+};
+
+const assertEngineReachable = async (docker: Docker): Promise<void> => {
+  try {
+    await docker.ping();
+  } catch (error) {
+    const engineAddress = getContainerEngineAddress();
+    const socketPath = getContainerEngineSocketPath();
+    logger.error(
+      'Cannot reach container engine, SANDBOX_CONTAINER_ENGINE_HOST={engineAddress}, SANDBOX_CONTAINER_ENGINE_SOCKET={socketPath}, error={error}',
+      {
+        engineAddress,
+        socketPath,
+        error,
+      },
+    );
+    throw error;
+  }
+};
 
 const resolveHostnameToIp = async (
   hostname: string,
@@ -105,6 +162,7 @@ export class DockerSandbox implements Sandbox {
         NO_PROXY: process.env.SANDBOX_NO_PROXY,
       };
       const docker = createDockerClient();
+      await assertEngineReachable(docker);
       const hostConfig: NonNullable<ContainerCreateOptions['HostConfig']> = {
         AutoRemove: true,
         PortBindings: {
@@ -158,6 +216,7 @@ export class DockerSandbox implements Sandbox {
     try {
       if (this.containerName) {
         const docker = createDockerClient();
+        await assertEngineReachable(docker);
         const container = docker.getContainer(this.containerName);
         await container.remove({
           force: true,
@@ -181,6 +240,7 @@ export class DockerSandbox implements Sandbox {
     }
 
     const docker = createDockerClient();
+    await assertEngineReachable(docker);
     const container = docker.getContainer(id);
     const endpoint = await DockerSandbox.getConnectionEndpoint(container);
     if (!endpoint) {
