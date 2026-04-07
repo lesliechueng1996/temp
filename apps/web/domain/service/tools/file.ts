@@ -1,203 +1,190 @@
+import type { StructuredToolInterface } from '@langchain/core/tools';
+import { tool as lcTool } from '@langchain/core/tools';
+import { z } from 'zod';
 import type { Sandbox } from '@/domain/external/sandbox';
-import { ToolCollection, tool } from './base';
+import { ToolCollection } from './base';
+
+const fileReadSchema = z.object({
+  filepath: z.string().describe('Absolute path of the file to read'),
+  startLine: z
+    .number()
+    .int()
+    .optional()
+    .describe('(Optional) Starting line to read, index starts from 0'),
+  endLine: z
+    .number()
+    .int()
+    .optional()
+    .describe('(Optional) Ending line number, exclusive'),
+  sudo: z
+    .boolean()
+    .optional()
+    .describe('(Optional) Whether to use sudo permission to read the file'),
+  maxLength: z
+    .number()
+    .int()
+    .optional()
+    .describe(
+      '(Optional) Maximum length of file content to read, default is 10000',
+    ),
+});
+
+const fileWriteSchema = z.object({
+  filepath: z.string().describe('Absolute path of the file to write'),
+  content: z.string().describe('Text content to write'),
+  append: z
+    .boolean()
+    .optional()
+    .describe('(Optional) Whether to use append mode'),
+  leadingNewline: z
+    .boolean()
+    .optional()
+    .describe(
+      '(Optional) Whether to add leading newline at the beginning of content',
+    ),
+  trailingNewline: z
+    .boolean()
+    .optional()
+    .describe(
+      '(Optional) Whether to add trailing newline at the end of content',
+    ),
+  sudo: z
+    .boolean()
+    .optional()
+    .describe('(Optional) Whether to use sudo permission to write the file'),
+});
+
+const fileStrReplaceSchema = z.object({
+  filepath: z.string().describe('Absolute path of the file to replace content'),
+  oldStr: z.string().describe('Original string to be replaced'),
+  newStr: z.string().describe('New string to replace with'),
+  sudo: z
+    .boolean()
+    .optional()
+    .describe('(Optional) Whether to use sudo permission to replace string'),
+});
+
+const fileFindInContentSchema = z.object({
+  filepath: z.string().describe('Absolute path of the file to search content'),
+  regex: z.string().describe('Regular expression pattern for matching'),
+  sudo: z
+    .boolean()
+    .optional()
+    .describe(
+      '(Optional) Whether to use sudo permission to search file content',
+    ),
+});
+
+const fileFindByNameSchema = z.object({
+  dirPath: z.string().describe('Absolute path of the directory to search'),
+  globPattern: z
+    .string()
+    .describe('Filename pattern using glob syntax wildcards'),
+});
+
+const fileListSchema = z.object({
+  dirPath: z.string().describe('Absolute path of the directory to list files'),
+});
+
+function createFileTools(sandbox: Sandbox): StructuredToolInterface[] {
+  const fileRead = lcTool(
+    async (input) => {
+      const options = {
+        startLine: input.startLine,
+        endLine: input.endLine,
+        sudo: input.sudo,
+        maxLength: input.maxLength ?? 10000,
+      };
+      return sandbox.fileRead(input.filepath, options);
+    },
+    {
+      name: 'file_read',
+      description:
+        'Read file content. Used to check file content, analyze logs, or read configuration files.',
+      schema: fileReadSchema,
+    },
+  );
+
+  const fileWrite = lcTool(
+    async (input) => {
+      return sandbox.fileWrite(input.filepath, input.content, {
+        append: input.append,
+        leadingNewline: input.leadingNewline,
+        trailingNewline: input.trailingNewline,
+        sudo: input.sudo,
+      });
+    },
+    {
+      name: 'file_write',
+      description:
+        'Write to a file with overwrite or append mode. Used to create new files, append content, or modify existing files.',
+      schema: fileWriteSchema,
+    },
+  );
+
+  const fileStrReplace = lcTool(
+    async (input) => {
+      return sandbox.fileReplace(input.filepath, input.oldStr, input.newStr, {
+        sudo: input.sudo,
+      });
+    },
+    {
+      name: 'file_str_replace',
+      description:
+        'Replace specified string in a file. Used to update specific content in files or fix errors in code.',
+      schema: fileStrReplaceSchema,
+    },
+  );
+
+  const fileFindInContent = lcTool(
+    async (input) => {
+      return sandbox.fileSearch(input.filepath, input.regex, {
+        sudo: input.sudo,
+      });
+    },
+    {
+      name: 'file_find_in_content',
+      description:
+        'Search for matching text in file content. Used to find specific content or patterns in files.',
+      schema: fileFindInContentSchema,
+    },
+  );
+
+  const fileFindByName = lcTool(
+    async (input) => {
+      return sandbox.fileFind(input.dirPath, input.globPattern);
+    },
+    {
+      name: 'file_find_by_name',
+      description:
+        'Find files by name pattern in a specified directory. Used to locate files with specific naming patterns.',
+      schema: fileFindByNameSchema,
+    },
+  );
+
+  const fileList = lcTool(
+    async (input) => {
+      return sandbox.fileList(input.dirPath);
+    },
+    {
+      name: 'file_list',
+      description: 'List file information in a specified directory',
+      schema: fileListSchema,
+    },
+  );
+
+  return [
+    fileRead,
+    fileWrite,
+    fileStrReplace,
+    fileFindInContent,
+    fileFindByName,
+    fileList,
+  ];
+}
 
 export class FileToolCollection extends ToolCollection {
-  constructor(private readonly sandbox: Sandbox) {
-    super('file_tools');
-  }
-
-  @tool({
-    name: 'file_read',
-    description:
-      'Read file content. Used to check file content, analyze logs, or read configuration files.',
-    parameters: {
-      filepath: {
-        type: 'string',
-        description: 'Absolute path of the file to read',
-      },
-      startLine: {
-        type: 'integer',
-        description: '(Optional) Starting line to read, index starts from 0',
-      },
-      endLine: {
-        type: 'integer',
-        description: '(Optional) Ending line number, exclusive',
-      },
-      sudo: {
-        type: 'boolean',
-        description:
-          '(Optional) Whether to use sudo permission to read the file',
-      },
-      maxLength: {
-        type: 'integer',
-        description:
-          '(Optional) Maximum length of file content to read, default is 10000',
-      },
-    },
-    required: ['filepath'],
-  })
-  async fileRead(params: {
-    filepath: string;
-    startLine?: number;
-    endLine?: number;
-    sudo?: boolean;
-    maxLength?: number;
-  }) {
-    const options = {
-      startLine: params.startLine,
-      endLine: params.endLine,
-      sudo: params.sudo,
-      maxLength: params.maxLength ?? 10000,
-    };
-    return this.sandbox.fileRead(params.filepath, options);
-  }
-
-  @tool({
-    name: 'file_write',
-    description:
-      'Write to a file with overwrite or append mode. Used to create new files, append content, or modify existing files.',
-    parameters: {
-      filepath: {
-        type: 'string',
-        description: 'Absolute path of the file to write',
-      },
-      content: {
-        type: 'string',
-        description: 'Text content to write',
-      },
-      append: {
-        type: 'boolean',
-        description: '(Optional) Whether to use append mode',
-      },
-      leadingNewline: {
-        type: 'boolean',
-        description:
-          '(Optional) Whether to add leading newline at the beginning of content',
-      },
-      trailingNewline: {
-        type: 'boolean',
-        description:
-          '(Optional) Whether to add trailing newline at the end of content',
-      },
-      sudo: {
-        type: 'boolean',
-        description:
-          '(Optional) Whether to use sudo permission to write the file',
-      },
-    },
-    required: ['filepath', 'content'],
-  })
-  async fileWrite(params: {
-    filepath: string;
-    content: string;
-    append?: boolean;
-    leadingNewline?: boolean;
-    trailingNewline?: boolean;
-    sudo?: boolean;
-  }) {
-    return this.sandbox.fileWrite(params.filepath, params.content, params);
-  }
-
-  @tool({
-    name: 'file_str_replace',
-    description:
-      'Replace specified string in a file. Used to update specific content in files or fix errors in code.',
-    parameters: {
-      filepath: {
-        type: 'string',
-        description: 'Absolute path of the file to replace content',
-      },
-      oldStr: {
-        type: 'string',
-        description: 'Original string to be replaced',
-      },
-      newStr: {
-        type: 'string',
-        description: 'New string to replace with',
-      },
-      sudo: {
-        type: 'boolean',
-        description:
-          '(Optional) Whether to use sudo permission to replace string',
-      },
-    },
-    required: ['filepath', 'oldStr', 'newStr'],
-  })
-  async fileStrReplace(params: {
-    filepath: string;
-    oldStr: string;
-    newStr: string;
-    sudo?: boolean;
-  }) {
-    return this.sandbox.fileReplace(
-      params.filepath,
-      params.oldStr,
-      params.newStr,
-      params,
-    );
-  }
-
-  @tool({
-    name: 'file_find_in_content',
-    description:
-      'Search for matching text in file content. Used to find specific content or patterns in files.',
-    parameters: {
-      filepath: {
-        type: 'string',
-        description: 'Absolute path of the file to search content',
-      },
-      regex: {
-        type: 'string',
-        description: 'Regular expression pattern for matching',
-      },
-      sudo: {
-        type: 'boolean',
-        description:
-          '(Optional) Whether to use sudo permission to search file content',
-      },
-    },
-    required: ['filepath', 'regex'],
-  })
-  async fileFindInContent(params: {
-    filepath: string;
-    regex: string;
-    sudo?: boolean;
-  }) {
-    return this.sandbox.fileSearch(params.filepath, params.regex, params);
-  }
-
-  @tool({
-    name: 'file_find_by_name',
-    description:
-      'Find files by name pattern in a specified directory. Used to locate files with specific naming patterns.',
-    parameters: {
-      dirPath: {
-        type: 'string',
-        description: 'Absolute path of the directory to search',
-      },
-      globPattern: {
-        type: 'string',
-        description: 'Filename pattern using glob syntax wildcards',
-      },
-    },
-    required: ['dirPath', 'globPattern'],
-  })
-  async fileFindByName(params: { dirPath: string; globPattern: string }) {
-    return this.sandbox.fileFind(params.dirPath, params.globPattern);
-  }
-
-  @tool({
-    name: 'file_list',
-    description: 'List file information in a specified directory',
-    parameters: {
-      dirPath: {
-        type: 'string',
-        description: 'Absolute path of the directory to list files',
-      },
-    },
-    required: ['dirPath'],
-  })
-  async fileList(params: { dirPath: string }) {
-    return this.sandbox.fileList(params.dirPath);
+  constructor(sandbox: Sandbox) {
+    super('file_tools', createFileTools(sandbox));
   }
 }

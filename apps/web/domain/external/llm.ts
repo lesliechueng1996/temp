@@ -1,3 +1,9 @@
+import type { AIMessage, BaseMessage } from '@langchain/core/messages';
+import type { StructuredToolInterface } from '@langchain/core/tools';
+import type {
+  ChatOpenAICallOptions,
+  ChatOpenAIResponseFormat,
+} from '@langchain/openai';
 import { OpenAILLMClient } from '@/infrastructure/external/llm/openai-llm';
 
 export interface LlmClient {
@@ -5,11 +11,11 @@ export interface LlmClient {
   temperature: number;
   maxTokens: number;
   invoke(data: {
-    messages: Array<Record<string, unknown>>;
-    tools?: Array<Record<string, unknown>>;
-    responseFormat?: Record<string, unknown>;
-    toolChoice?: string;
-  }): Promise<Record<string, unknown>>;
+    messages: BaseMessage[];
+    tools?: StructuredToolInterface[];
+    responseFormat?: ChatOpenAIResponseFormat;
+    toolChoice?: ChatOpenAICallOptions['tool_choice'];
+  }): Promise<AIMessage>;
 }
 
 export const getLlm = async (): Promise<LlmClient> => {

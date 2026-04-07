@@ -1,72 +1,74 @@
-import OpenAI, { type ClientOptions } from 'openai';
-import type { ChatCompletion } from 'openai/resources';
-import type { ChatCompletionCreateParamsBase } from 'openai/resources/chat/completions';
+import { AIMessage, type BaseMessage } from '@langchain/core/messages';
+import type { StructuredToolInterface } from '@langchain/core/tools';
+import { ChatOpenAI, type ChatOpenAICallOptions } from '@langchain/openai';
+import type { ClientOptions } from 'openai';
 import type { LlmClient } from '@/domain/external/llm';
 import type { LlmConfig } from '@/domain/model/app-config';
 import { logger } from '@/infrastructure/logger';
 import { InternalServerErrorException } from '@/interface/exception';
 
 export class OpenAILLMClient implements LlmClient {
-  private readonly client: OpenAI;
+  private readonly model: ChatOpenAI;
   readonly modelName: string;
   readonly temperature: number;
   readonly maxTokens: number;
 
   constructor(
-    private readonly llmConfig: LlmConfig,
-    private readonly openaiConfig: Partial<ClientOptions> = {},
+    llmConfig: LlmConfig,
+    private readonly openaiClientOptions: Partial<ClientOptions> = {},
   ) {
-    this.client = new OpenAI({
-      baseURL: this.llmConfig.baseUrl,
-      apiKey: this.llmConfig.apiKey,
-      ...this.openaiConfig,
-    });
-
-    const { modelName, temperature, maxTokens } = this.llmConfig;
+    const { modelName, temperature, maxTokens } = llmConfig;
     this.modelName = modelName;
     this.temperature = temperature;
     this.maxTokens = maxTokens;
+
+    this.model = new ChatOpenAI({
+      model: modelName,
+      temperature,
+      maxTokens,
+      apiKey: llmConfig.apiKey,
+      configuration: {
+        baseURL: llmConfig.baseUrl || undefined,
+        ...this.openaiClientOptions,
+      },
+    });
   }
 
   async invoke(params: {
-    messages: Array<Record<string, unknown>>;
-    tools?: Array<Record<string, unknown>>;
-    responseFormat?: Record<string, unknown>;
-    toolChoice?: string;
-  }): Promise<Record<string, unknown>> {
+    messages: BaseMessage[];
+    tools?: StructuredToolInterface[];
+    responseFormat?: ChatOpenAICallOptions['response_format'];
+    toolChoice?: ChatOpenAICallOptions['tool_choice'];
+  }): Promise<AIMessage> {
+    const { messages, tools, responseFormat, toolChoice } = params;
+
     try {
-      const { messages, tools, responseFormat, toolChoice } = params;
-
-      const openaiParams = {
-        model: this.modelName,
-        temperature: this.temperature,
-        max_completion_tokens: this.maxTokens,
-        messages,
-        response_format: responseFormat,
-      } as unknown as ChatCompletionCreateParamsBase;
-
-      if (tools && tools.length > 0) {
+      const hasTools = Boolean(tools?.length);
+      if (hasTools) {
         logger.info(`Tools are provided, model name ${this.modelName}`);
-        Object.assign(openaiParams, {
-          tools,
-          tool_choice: toolChoice,
-          parallel_tool_calls: false,
-        });
       } else {
         logger.info(`No tools are provided, model name ${this.modelName}`);
       }
 
-      const response = (await this.client.chat.completions.create(
-        openaiParams,
-      )) as ChatCompletion;
-      const aiMessage = response.choices[0].message as unknown as Record<
-        string,
-        unknown
-      >;
+      let runnable = hasTools
+        ? this.model.bindTools(tools ?? [], {
+            tool_choice: toolChoice,
+            parallel_tool_calls: false,
+          })
+        : this.model;
+
+      if (responseFormat !== undefined) {
+        runnable = runnable.withConfig({
+          response_format: responseFormat,
+        });
+      }
+
+      const result = await runnable.invoke(messages);
+
       logger.info('OpenAI Response: {body}', {
-        body: JSON.stringify(aiMessage),
+        body: result,
       });
-      return aiMessage;
+      return result;
     } catch (error) {
       console.error(error);
       logger.error('Failed to invoke OpenAI Client', { error });

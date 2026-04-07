@@ -1,134 +1,139 @@
+import type { StructuredToolInterface } from '@langchain/core/tools';
+import { tool as lcTool } from '@langchain/core/tools';
+import { z } from 'zod';
 import type { Sandbox } from '@/domain/external/sandbox';
-import { ToolCollection, tool } from './base';
 import { logger } from '@/infrastructure/logger';
+import { ToolCollection } from './base';
+
+const shellExecuteSchema = z.object({
+  sessionId: z
+    .string()
+    .describe('Unique identifier for the target shell session'),
+  execDir: z
+    .string()
+    .describe(
+      'Working directory for command execution (must be an absolute path)',
+    ),
+  command: z.string().describe('The shell command to execute'),
+});
+
+const shellReadOutputSchema = z.object({
+  sessionId: z
+    .string()
+    .describe('Unique identifier for the target shell session'),
+});
+
+const shellWaitProcessSchema = z.object({
+  sessionId: z
+    .string()
+    .describe('Unique identifier for the target shell session'),
+  seconds: z
+    .number()
+    .int()
+    .optional()
+    .describe('Optional parameter, wait duration in seconds'),
+});
+
+const shellWriteInputSchema = z.object({
+  sessionId: z
+    .string()
+    .describe('Unique identifier for the target shell session'),
+  inputText: z.string().describe('Input content to write to the process'),
+  pressEnter: z
+    .boolean()
+    .describe('Whether to press the Enter key after input'),
+});
+
+const shellKillProcessSchema = z.object({
+  sessionId: z
+    .string()
+    .describe('Unique identifier for the target shell session'),
+});
+
+function createShellTools(sandbox: Sandbox): StructuredToolInterface[] {
+  const shellExecute = lcTool(
+    async (input) => {
+      logger.info(
+        'Executing shell command tool, {sessionId}, {execDir}, {command}',
+        {
+          sessionId: input.sessionId,
+          execDir: input.execDir,
+          command: input.command,
+        },
+      );
+      return sandbox.execCommand(input.sessionId, input.execDir, input.command);
+    },
+    {
+      name: 'shell_execute',
+      description:
+        'Execute a command in a specified shell session. Can be used to run code, install dependencies, or manage files.',
+      schema: shellExecuteSchema,
+    },
+  );
+
+  const shellReadOutput = lcTool(
+    async (input) => {
+      return sandbox.viewShell(input.sessionId);
+    },
+    {
+      name: 'shell_read_output',
+      description:
+        'View the content of a specified shell session. Used to check command execution results or monitor output.',
+      schema: shellReadOutputSchema,
+    },
+  );
+
+  const shellWaitProcess = lcTool(
+    async (input) => {
+      return sandbox.waitForProcess(input.sessionId, input.seconds);
+    },
+    {
+      name: 'shell_wait_process',
+      description:
+        'Wait for a running process in a specified shell session to return. Use after running long-running commands.',
+      schema: shellWaitProcessSchema,
+    },
+  );
+
+  const shellWriteInput = lcTool(
+    async (input) => {
+      return sandbox.writeToProcess(
+        input.sessionId,
+        input.inputText,
+        input.pressEnter,
+      );
+    },
+    {
+      name: 'shell_write_input',
+      description:
+        'Write input to a running process in a specified shell session. Used to respond to interactive command prompts.',
+      schema: shellWriteInputSchema,
+    },
+  );
+
+  const shellKillProcess = lcTool(
+    async (input) => {
+      return sandbox.killProcess(input.sessionId);
+    },
+    {
+      name: 'shell_kill_process',
+      description:
+        'Terminate a running process in a specified shell session. Used to stop long-running processes or handle stuck commands.',
+      schema: shellKillProcessSchema,
+    },
+  );
+
+  return [
+    shellExecute,
+    shellReadOutput,
+    shellWaitProcess,
+    shellWriteInput,
+    shellKillProcess,
+  ];
+}
 
 export class ShellToolCollection extends ToolCollection {
-  constructor(private readonly sandbox: Sandbox) {
-    super('shell_tools');
-  }
-
-  @tool({
-    name: 'shell_execute',
-    description:
-      'Execute a command in a specified shell session. Can be used to run code, install dependencies, or manage files.',
-    parameters: {
-      sessionId: {
-        type: 'string',
-        description: 'Unique identifier for the target shell session',
-      },
-      execDir: {
-        type: 'string',
-        description:
-          'Working directory for command execution (must be an absolute path)',
-      },
-      command: {
-        type: 'string',
-        description: 'The shell command to execute',
-      },
-    },
-    required: ['sessionId', 'execDir', 'command'],
-  })
-  async shellExecute(params: {
-    sessionId: string;
-    execDir: string;
-    command: string;
-  }) {
-    logger.info(
-      'Excuting shell command tool, {sessionId}, {execDir}, {command}',
-      {
-        sessionId: params.sessionId,
-        execDir: params.execDir,
-        command: params.command,
-      },
-    );
-    return this.sandbox.execCommand(
-      params.sessionId,
-      params.execDir,
-      params.command,
-    );
-  }
-
-  @tool({
-    name: 'shell_read_output',
-    description:
-      'View the content of a specified shell session. Used to check command execution results or monitor output.',
-    parameters: {
-      sessionId: {
-        type: 'string',
-        description: 'Unique identifier for the target shell session',
-      },
-    },
-    required: ['sessionId'],
-  })
-  async shellView(params: { sessionId: string }) {
-    return this.sandbox.viewShell(params.sessionId);
-  }
-
-  @tool({
-    name: 'shell_wait_process',
-    description:
-      'Wait for a running process in a specified shell session to return. Use after running long-running commands.',
-    parameters: {
-      sessionId: {
-        type: 'string',
-        description: 'Unique identifier for the target shell session',
-      },
-      seconds: {
-        type: 'integer',
-        description: 'Optional parameter, wait duration in seconds',
-      },
-    },
-    required: ['sessionId'],
-  })
-  async shellWait(params: { sessionId: string; seconds?: number }) {
-    return this.sandbox.waitForProcess(params.sessionId, params.seconds);
-  }
-
-  @tool({
-    name: 'shell_write_input',
-    description:
-      'Write input to a running process in a specified shell session. Used to respond to interactive command prompts.',
-    parameters: {
-      sessionId: {
-        type: 'string',
-        description: 'Unique identifier for the target shell session',
-      },
-      inputText: {
-        type: 'string',
-        description: 'Input content to write to the process',
-      },
-      pressEnter: {
-        type: 'boolean',
-        description: 'Whether to press the Enter key after input',
-      },
-    },
-    required: ['sessionId', 'inputText', 'pressEnter'],
-  })
-  async shellWriteToProcess(params: {
-    sessionId: string;
-    inputText: string;
-    pressEnter: boolean;
-  }) {
-    return this.sandbox.writeToProcess(
-      params.sessionId,
-      params.inputText,
-      params.pressEnter,
-    );
-  }
-
-  @tool({
-    name: 'shell_kill_process',
-    description:
-      'Terminate a running process in a specified shell session. Used to stop long-running processes or handle stuck commands.',
-    parameters: {
-      sessionId: {
-        type: 'string',
-        description: 'Unique identifier for the target shell session',
-      },
-    },
-    required: ['sessionId'],
-  })
-  async shellKillProcess(params: { sessionId: string }) {
-    return this.sandbox.killProcess(params.sessionId);
+  constructor(sandbox: Sandbox) {
+    super('shell_tools', createShellTools(sandbox));
   }
 }

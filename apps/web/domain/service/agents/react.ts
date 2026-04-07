@@ -3,8 +3,6 @@ import {
   MessageEvent,
   StepEvent,
   StepEventStatus,
-  ToolEventStatus,
-  WaitEvent,
 } from '@/domain/model/event';
 import { File } from '@/domain/model/file';
 import { Message } from '@/domain/model/message';
@@ -42,20 +40,7 @@ export class ReActAgent extends BaseAgent {
     });
 
     for await (const event of this.invoke(query)) {
-      if (event.type === 'tool') {
-        if (event.functionName === 'message_ask_user') {
-          if (event.status === ToolEventStatus.CALLING) {
-            yield new MessageEvent({
-              role: 'assistant',
-              message: event.functionArguments.text as string,
-            });
-          } else if (event.status === ToolEventStatus.CALLED) {
-            yield new WaitEvent();
-            return;
-          }
-          continue;
-        }
-      } else if (event.type === 'message') {
+      if (event.type === 'message') {
         step.status = ExecutionStatus.COMPLETED;
         const parsedObj = this.jsonParser.parse(event.message) as Partial<Step>;
         const newStep = new Step(parsedObj);

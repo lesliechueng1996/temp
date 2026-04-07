@@ -1,39 +1,21 @@
-import { logger } from '@/infrastructure/logger';
-
-type ToolMessage = {
-  role: 'tool';
-  functionName: string;
-  content: string;
-};
-
-type Message =
-  | {
-      role: string;
-      content: string;
-    }
-  | ToolMessage
-  | Record<string, unknown>;
-
-export const getMessageRole = (message: Message) => {
-  return message.role as string;
-};
+import type { BaseMessage } from '@langchain/core/messages';
 
 export class Memory {
-  private readonly messages: Message[] = [];
+  private readonly messages: BaseMessage[] = [];
 
-  addMessage(message: Message) {
+  addMessage(message: BaseMessage) {
     this.messages.push(message);
   }
 
-  addMessages(messages: Message[]) {
+  addMessages(messages: BaseMessage[]) {
     this.messages.push(...messages);
   }
 
-  getMessages() {
+  getMessages(): BaseMessage[] {
     return this.messages;
   }
 
-  getLastMessage() {
+  getLastMessage(): BaseMessage | null {
     if (this.messages.length === 0) {
       return null;
     }
@@ -46,5 +28,10 @@ export class Memory {
 
   isEmpty() {
     return this.messages.length === 0;
+  }
+
+  replaceMessages(messages: BaseMessage[]) {
+    this.messages.length = 0;
+    this.messages.push(...messages);
   }
 }

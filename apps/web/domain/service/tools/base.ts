@@ -1,146 +1,78 @@
 import type { ToolResult } from '@/domain/model/tool-result';
+import type { StructuredToolInterface } from '@langchain/core/tools';
+import type { z } from 'zod';
 
-type ToolInvoke<TArg, TRes> = (
-  receiver: ToolCollection,
-  arg: TArg,
-) => Promise<ToolResult<TRes>>;
+const globalLangChainTools = new Map<string, StructuredToolInterface>();
 
-export type ToolSchema = {
-  type: 'function';
-  function: {
-    name: string;
-    description: string;
-    parameters: {
-      type: 'object';
-      properties: Record<string, Record<string, unknown>>;
-      required: Array<string>;
-    };
-  };
-};
-
-export interface BaseTool {
-  readonly toolName: string;
-  readonly toolDescription: string;
-  readonly toolSchema: ToolSchema;
+export function getGlobalLangChainTools(): Map<
+  string,
+  StructuredToolInterface
+> {
+  return globalLangChainTools;
 }
 
-export class Tool<TArg, TRes> implements BaseTool {
-  private readonly invokeImpl: ToolInvoke<TArg, TRes>;
-  readonly toolName: string;
-  readonly toolDescription: string;
-  readonly toolSchema: ToolSchema;
-
-  constructor(params: {
-    invoke: ToolInvoke<TArg, TRes>;
-    name: string;
-    description: string;
-    parameters: Record<string, Record<string, unknown>>;
-    required: Array<string>;
-  }) {
-    this.toolSchema = {
-      type: 'function',
-      function: {
-        name: params.name,
-        description: params.description,
-        parameters: {
-          type: 'object',
-          properties: params.parameters,
-          required: params.required,
-        },
-      },
-    };
-    this.toolName = params.name;
-    this.toolDescription = params.description;
-    this.invokeImpl = params.invoke;
-  }
-
-  async invoke(receiver: ToolCollection, arg: TArg): Promise<ToolResult<TRes>> {
-    return this.invokeImpl(receiver, arg);
+function registerTools(tools: StructuredToolInterface[]): void {
+  for (const t of tools) {
+    globalLangChainTools.set(t.name, t);
   }
 }
 
-const TOOL_SET_KEY = Symbol('tool-set');
+function zodObjectKeys(schema: unknown): Set<string> | null {
+  if (
+    schema !== null &&
+    typeof schema === 'object' &&
+    'shape' in schema &&
+    typeof (schema as z.ZodObject<z.ZodRawShape>).shape === 'object'
+  ) {
+    return new Set(Object.keys((schema as z.ZodObject<z.ZodRawShape>).shape));
+  }
+  return null;
+}
 
-type ToolConstructor = {
-  [TOOL_SET_KEY]?: Map<string, BaseTool>;
-};
-
-export const tool = (
-  params: Omit<ConstructorParameters<typeof Tool>[0], 'invoke'>,
-) => {
-  return (
-    target: object,
-    _propertyKey: string | symbol,
-    // biome-ignore lint/suspicious/noExplicitAny: legacy decorator must accept any method shape
-    descriptor: TypedPropertyDescriptor<any>,
-  ) => {
-    const original = descriptor.value;
-    if (!original) {
-      return;
-    }
-
-    const ctor = target.constructor as ToolConstructor;
-    if (!ctor[TOOL_SET_KEY]) {
-      ctor[TOOL_SET_KEY] = new Map<string, BaseTool>();
-    }
-    const toolMap = ctor[TOOL_SET_KEY];
-    if (!toolMap) {
-      return;
-    }
-
-    toolMap.set(
-      params.name,
-      new Tool({
-        invoke: (receiver, arg) =>
-          original.call(receiver, arg) as Promise<ToolResult<unknown>>,
-        name: params.name,
-        description: params.description,
-        parameters: params.parameters,
-        required: params.required,
-      }),
-    );
-  };
-};
-
-const filterToolParameters = <TArg>(tool: BaseTool, parameters: TArg) => {
-  const toolSchema = tool.toolSchema;
-  const filteredParameters: TArg = {} as TArg;
-  for (const property in parameters) {
-    if (toolSchema.function.parameters.properties[property]) {
-      filteredParameters[property] = parameters[property];
+function filterArgsBySchema(
+  tool: StructuredToolInterface,
+  args: Record<string, unknown>,
+): Record<string, unknown> {
+  const keys = zodObjectKeys(tool.schema);
+  if (!keys) {
+    return args;
+  }
+  const out: Record<string, unknown> = {};
+  for (const k of Object.keys(args)) {
+    if (keys.has(k)) {
+      out[k] = args[k];
     }
   }
-
-  return filteredParameters;
-};
+  return out;
+}
 
 export class ToolCollection {
-  constructor(readonly collectionName: string) {}
+  private readonly tools: StructuredToolInterface[];
 
-  protected getToolMap() {
-    const ctor = this.constructor as ToolConstructor;
-    return ctor[TOOL_SET_KEY] ?? new Map<string, BaseTool>();
+  constructor(
+    readonly collectionName: string,
+    tools: StructuredToolInterface[],
+  ) {
+    this.tools = tools;
+    registerTools(tools);
   }
 
   hasTool(toolName: string): boolean {
-    return this.getToolMap().has(toolName);
+    return this.tools.some((t) => t.name === toolName);
   }
 
-  getTools(): BaseTool[] {
-    const toolMap = this.getToolMap();
-    return Array.from(toolMap.values());
+  getTools(): StructuredToolInterface[] {
+    return this.tools;
   }
 
-  async invokeTool<TArg extends Record<string, unknown>, TRes>(
+  async invokeTool(
     toolName: string,
-    parameters: TArg,
-  ): Promise<ToolResult<TRes>> {
-    const tool = this.getToolMap().get(toolName) as Tool<TArg, TRes>;
+    parameters: Record<string, unknown>,
+  ): Promise<ToolResult<unknown>> {
+    const tool = this.tools.find((t) => t.name === toolName);
     if (!tool) {
       throw new Error(`Tool ${toolName} not found`);
     }
-    const filteredParameters = filterToolParameters<TArg>(tool, parameters);
-    const result = await tool.invoke(this, filteredParameters);
-    return result;
+    return tool.invoke(filterArgsBySchema(tool, parameters));
   }
 }

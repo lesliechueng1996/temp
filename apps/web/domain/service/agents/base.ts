@@ -1,4 +1,22 @@
 import { randomUUID } from 'node:crypto';
+import {
+  AIMessage,
+  type BaseMessage,
+  HumanMessage,
+  SystemMessage,
+  ToolMessage,
+} from '@langchain/core/messages';
+import {
+  END,
+  MessagesValue,
+  ReducedValue,
+  START,
+  StateGraph,
+  StateSchema,
+} from '@langchain/langgraph';
+import { ToolNode } from '@langchain/langgraph/prebuilt';
+import type { ChatOpenAIResponseFormat } from '@langchain/openai';
+import { z } from 'zod';
 import type { JsonParser } from '@/domain/external/json-parser';
 import type { LlmClient } from '@/domain/external/llm';
 import type { AgentConfig } from '@/domain/model/app-config';
@@ -19,15 +37,6 @@ import {
 import { logger } from '@/infrastructure/logger';
 import type { ToolCollection } from '../tools/base';
 
-type ToolCall = {
-  id: string;
-  type: 'function';
-  function?: {
-    name: string;
-    arguments: string;
-  };
-};
-
 type BaseAgentParams = {
   sessionId: string;
   agentConfig: AgentConfig;
@@ -43,6 +52,21 @@ type BaseAgentData = {
   retryInterval: number;
   toolChoice: string | null;
 };
+
+/** LangGraph state: message list + completed tool-round counter (incremented per tools node). */
+const AgentStateSchema = new StateSchema({
+  messages: MessagesValue,
+  toolRound: new ReducedValue(z.number().default(0), {
+    reducer: (current, delta) => current + delta,
+  }),
+});
+
+function messageContentToString(content: BaseMessage['content']): string {
+  if (typeof content === 'string') {
+    return content;
+  }
+  return JSON.stringify(content);
+}
 
 export class BaseAgent {
   protected readonly name: string = '';
@@ -80,131 +104,119 @@ export class BaseAgent {
     return this.memory;
   }
 
-  protected async addToMemory(messages: Array<Record<string, unknown>>) {
-    const memory = await this.ensureMemory();
-    if (memory.isEmpty()) {
-      memory.addMessage({
-        role: 'system',
-        content: this.systemPrompt,
-      });
+  protected getResponseFormat(
+    format: string | null,
+  ): ChatOpenAIResponseFormat | undefined {
+    if (!format) {
+      return undefined;
     }
-    memory.addMessages(messages);
-    await this.sessionRepository.saveMemory(this.sessionId, this.name, memory);
+    if (format === 'json_object') {
+      return { type: 'json_object' };
+    }
+    return { type: format as 'text' };
   }
 
-  protected getFormattedTools() {
-    return this.tools
-      .flatMap((tool) => tool.getTools())
-      .map((tool) => tool.toolSchema);
-  }
+  private buildCompiledGraph(format: string | null) {
+    const langchainTools = this.tools.flatMap((tool) => tool.getTools());
+    const responseFormat = this.getResponseFormat(format);
+    const toolNode = new ToolNode(langchainTools);
 
-  protected async invokeLLM(
-    messages: Array<Record<string, unknown>>,
-    format: string | null = null,
-  ) {
-    await this.addToMemory(messages);
-    const memory = await this.ensureMemory();
-    const responseFormat = format ? { type: format } : undefined;
+    const toolsWithRound = async (
+      state: typeof AgentStateSchema.State,
+    ): Promise<Partial<typeof AgentStateSchema.State>> => {
+      const out = await toolNode.invoke(state);
+      return {
+        ...out,
+        toolRound: 1,
+      };
+    };
 
-    let runIndex = 0;
-    while (runIndex < this.agentConfig.maxRetries) {
-      try {
-        const message = await this.llm.invoke({
-          messages: memory.getMessages(),
-          tools: this.getFormattedTools(),
-          responseFormat,
-          toolChoice: this.toolChoice ?? undefined,
-        });
+    const callModel = async (
+      state: typeof AgentStateSchema.State,
+    ): Promise<Partial<typeof AgentStateSchema.State>> => {
+      let runIndex = 0;
+      let workingMessages = [...state.messages];
+      const pendingRetryMessages: BaseMessage[] = [];
 
-        if (message.role === 'assistant') {
-          if (!message.content && !message.tool_calls) {
+      while (runIndex < this.agentConfig.maxRetries) {
+        try {
+          const message = await this.llm.invoke({
+            messages: workingMessages,
+            tools: langchainTools.length > 0 ? langchainTools : undefined,
+            responseFormat,
+            toolChoice: this.toolChoice ?? undefined,
+          });
+
+          if (message.type !== 'ai') {
+            logger.warn(`Unexpected message type: ${message.type}`);
+            return {
+              messages: [...pendingRetryMessages, message],
+            };
+          }
+
+          let ai = message;
+          if (!ai.content && (!ai.tool_calls || ai.tool_calls.length === 0)) {
             logger.warn('Assistant message is empty');
-            await this.addToMemory([
-              { role: 'assistant', content: '' },
-              {
-                role: 'user',
+            const retryPair: BaseMessage[] = [
+              new AIMessage({ content: '' }),
+              new HumanMessage({
                 content: 'Assistant message is empty, please try again.',
-              },
-            ]);
+              }),
+            ];
+            pendingRetryMessages.push(...retryPair);
+            workingMessages = [...state.messages, ...pendingRetryMessages];
             await new Promise((resolve) =>
               setTimeout(resolve, this.retryInterval * 1000),
             );
             continue;
           }
-          const filteredMessage: {
-            role: string;
-            content: string;
-            tool_calls: Array<ToolCall> | null;
-          } = {
-            role: 'assistant',
-            content: message.content as string,
-            tool_calls: null,
-          };
-          if (message.reasoning_content) {
-            filteredMessage.content = message.reasoning_content as string;
-          }
-          if (message.tool_calls && Array.isArray(message.tool_calls)) {
-            // Only call 1 tool at a time
-            filteredMessage.tool_calls = [message.tool_calls[0]];
-          }
-          await this.addToMemory([filteredMessage]);
-          return filteredMessage;
-        } else {
-          logger.warn(`Unexpected message role: ${message.role}`);
-          await this.addToMemory([message]);
-          return message;
-        }
-      } catch (error) {
-        logger.error('Failed to invoke LLM', { error });
-        await new Promise((resolve) =>
-          setTimeout(resolve, this.retryInterval * 1000),
-        );
-      } finally {
-        runIndex++;
-      }
-    }
 
-    throw new Error('Failed to invoke LLM after max retries');
+          if (ai.tool_calls && ai.tool_calls.length > 1) {
+            ai = new AIMessage({
+              ...ai,
+              tool_calls: [ai.tool_calls[0]],
+            });
+          }
+
+          return { messages: [...pendingRetryMessages, ai] };
+        } catch (error) {
+          logger.error('Failed to invoke LLM', { error });
+          await new Promise((resolve) =>
+            setTimeout(resolve, this.retryInterval * 1000),
+          );
+        } finally {
+          runIndex++;
+        }
+      }
+
+      throw new Error('Failed to invoke LLM after max retries');
+    };
+
+    const routeAfterAgent = (
+      state: typeof AgentStateSchema.State,
+    ): typeof END | 'tools' => {
+      const last = state.messages[state.messages.length - 1];
+      if (!AIMessage.isInstance(last) || !last.tool_calls?.length) {
+        return END;
+      }
+      if (state.toolRound >= this.agentConfig.maxIterations) {
+        return END;
+      }
+      return 'tools';
+    };
+
+    const graph = new StateGraph(AgentStateSchema)
+      .addNode('agent', callModel)
+      .addNode('tools', toolsWithRound)
+      .addEdge(START, 'agent')
+      .addConditionalEdges('agent', routeAfterAgent)
+      .addEdge('tools', 'agent');
+
+    return graph.compile();
   }
 
   protected getTool(toolName: string) {
     return this.tools.find((tool) => tool.hasTool(toolName));
-  }
-
-  protected async invokeTool(
-    toolCollection: ToolCollection,
-    toolName: string,
-    toolArguments: Record<string, unknown>,
-  ): Promise<ToolResult<unknown>> {
-    let toolRetryIndex = 0;
-    let finalError: string = '';
-    while (toolRetryIndex < this.agentConfig.maxRetries) {
-      try {
-        const result = await toolCollection.invokeTool(toolName, toolArguments);
-        logger.info('Tool invoked, toolName: {toolName}, result: {result}', {
-          toolName,
-          result,
-        });
-        if (!result) {
-          throw new Error(`Failed to invoke tool ${toolName}`);
-        }
-        return result;
-      } catch (error) {
-        logger.error(`Failed to invoke tool ${toolName}`, { error });
-        finalError = error instanceof Error ? error.message : String(error);
-        await new Promise((resolve) =>
-          setTimeout(resolve, this.retryInterval * 1000),
-        );
-      } finally {
-        toolRetryIndex++;
-      }
-    }
-
-    return {
-      success: false,
-      message: finalError,
-      data: null,
-    };
   }
 
   protected async *invoke(
@@ -216,89 +228,115 @@ export class BaseAgent {
     }
 
     try {
-      let message = await this.invokeLLM(
-        [{ role: 'user', content: query }],
-        format,
+      const memory = await this.ensureMemory();
+      if (memory.isEmpty()) {
+        memory.addMessage(new SystemMessage(this.systemPrompt));
+      }
+      memory.addMessage(new HumanMessage({ content: query }));
+      await this.sessionRepository.saveMemory(
+        this.sessionId,
+        this.name,
+        memory,
       );
 
-      let iterationIndex = 0;
-      while (iterationIndex < this.agentConfig.maxIterations) {
-        iterationIndex++;
+      const initialMessages = [...memory.getMessages()];
+      const graph = this.buildCompiledGraph(format);
 
-        if (!message.tool_calls) {
-          break;
-        }
+      let prevLen = initialMessages.length;
+      let lastMessages: BaseMessage[] = initialMessages;
+      const toolCallArgsById = new Map<string, Record<string, unknown>>();
 
-        const toolMessages: Array<Record<string, unknown>> = [];
-        for (const toolCall of message.tool_calls as Array<ToolCall>) {
-          if (!toolCall.function) {
-            continue;
+      const stream = await graph.stream(
+        {
+          messages: initialMessages,
+        },
+        {
+          streamMode: 'values',
+          recursionLimit: this.agentConfig.maxIterations * 2 + 4,
+        },
+      );
+
+      for await (const state of stream) {
+        const msgs = state.messages;
+        lastMessages = msgs;
+        const newMsgs = msgs.slice(prevLen);
+        prevLen = msgs.length;
+
+        for (const m of newMsgs) {
+          if (AIMessage.isInstance(m) && m.tool_calls?.length) {
+            for (const tc of m.tool_calls) {
+              const toolCallId = tc.id ?? randomUUID();
+              const functionName = tc.name;
+              const functionArguments =
+                typeof tc.args === 'object' && tc.args !== null
+                  ? (tc.args as Record<string, unknown>)
+                  : {};
+              const tool = this.getTool(functionName);
+              if (!tool) {
+                logger.error('Tool not found, functionName: {functionName}', {
+                  functionName,
+                });
+                continue;
+              }
+              toolCallArgsById.set(toolCallId, functionArguments);
+              yield new ToolEvent({
+                toolCallId,
+                toolName: tool.collectionName,
+                functionName,
+                functionArguments,
+                status: ToolEventStatus.CALLING,
+              });
+            }
           }
-          const toolCallId = toolCall.id || randomUUID();
-          const functionName = toolCall.function.name;
-          const functionArguments = this.jsonParser.parse(
-            toolCall.function.arguments,
-          ) as Record<string, unknown>;
-          logger.info(
-            'Invoking tool, toolCallId: {toolCallId}, functionName: {functionName}, functionArguments: {functionArguments}',
-            {
-              toolCallId,
+          if (ToolMessage.isInstance(m)) {
+            const functionName = m.name ?? '';
+            const tool = this.getTool(functionName);
+            const rawContent = messageContentToString(m.content);
+            let functionResult: ToolResult<unknown>;
+            try {
+              functionResult = JSON.parse(rawContent) as ToolResult<unknown>;
+            } catch {
+              functionResult = {
+                success: true,
+                message: rawContent,
+                data: rawContent,
+              };
+            }
+            const functionArguments =
+              toolCallArgsById.get(m.tool_call_id) ?? {};
+            toolCallArgsById.delete(m.tool_call_id);
+            yield new ToolEvent({
+              toolCallId: m.tool_call_id,
+              toolName: tool?.collectionName ?? functionName,
               functionName,
               functionArguments,
-            },
-          );
-          const tool = this.getTool(functionName);
-          if (!tool) {
-            logger.error('Tool not found, functionName: {functionName}', {
-              functionName,
+              functionResult,
+              status: ToolEventStatus.CALLED,
             });
-            continue;
           }
-
-          yield new ToolEvent({
-            toolCallId,
-            toolName: tool.collectionName,
-            functionName,
-            functionArguments,
-            status: ToolEventStatus.CALLING,
-          });
-
-          const result = await this.invokeTool(
-            tool,
-            functionName,
-            functionArguments,
-          );
-
-          yield new ToolEvent({
-            toolCallId,
-            toolName: tool.collectionName,
-            functionName,
-            functionArguments,
-            functionResult: result,
-            status: ToolEventStatus.CALLED,
-          });
-
-          toolMessages.push({
-            role: 'tool',
-            tool_call_id: toolCallId,
-            function_name: functionName,
-            content: JSON.stringify(result),
-          });
         }
-
-        message = await this.invokeLLM(toolMessages);
-        console.log(message);
       }
 
-      if (iterationIndex >= this.agentConfig.maxIterations) {
+      memory.replaceMessages(lastMessages);
+      await this.sessionRepository.saveMemory(
+        this.sessionId,
+        this.name,
+        memory,
+      );
+
+      const last = lastMessages[lastMessages.length - 1];
+      if (AIMessage.isInstance(last) && last.tool_calls?.length) {
         yield new ErrorEvent({
           error: `Agent reached the maximum number of iterations: ${this.agentConfig.maxIterations}`,
         });
-      } else {
-        yield new MessageEvent({
-          message: message.content as string,
-        });
+        return;
       }
+
+      const out = AIMessage.isInstance(last) ? String(last.content ?? '') : '';
+
+      yield new MessageEvent({
+        message: out,
+      });
     } catch (error) {
       yield new ErrorEvent({
         error: error instanceof Error ? error.message : String(error),
@@ -306,30 +344,26 @@ export class BaseAgent {
     }
   }
 
-  protected getMemory() {
-    return this.memory;
-  }
-
   async rollBack(message: Message) {
     const memory = await this.ensureMemory();
-    const lastMessage = memory.getLastMessage() as Record<string, unknown>;
-    if (
-      !lastMessage?.tool_calls ||
-      (Array.isArray(lastMessage.tool_calls) &&
-        lastMessage.tool_calls.length === 0)
-    ) {
+    const lastMessage = memory.getLastMessage();
+    if (!lastMessage || !AIMessage.isInstance(lastMessage)) {
       return;
     }
-    const toolCall = (lastMessage.tool_calls as Array<ToolCall>)[0];
-    const functionName = toolCall.function?.name;
-    const toolCallId = toolCall.id;
+    if (!lastMessage.tool_calls || lastMessage.tool_calls.length === 0) {
+      return;
+    }
+    const toolCall = lastMessage.tool_calls[0];
+    const functionName = toolCall.name;
+    const toolCallId = toolCall.id ?? '';
     if (functionName === 'message_ask_user') {
-      memory.addMessage({
-        role: 'tool',
-        tool_call_id: toolCallId,
-        function_name: functionName,
-        content: JSON.stringify(message),
-      });
+      memory.addMessage(
+        new ToolMessage({
+          tool_call_id: toolCallId,
+          name: functionName,
+          content: JSON.stringify(message),
+        }),
+      );
     } else {
       memory.rollBack();
     }
