@@ -6,6 +6,7 @@ import {
   ShellToolContent,
   ToolEvent,
   ToolEventStatus,
+  MessageEvent,
 } from '../model/event';
 import { getSessionRepository } from '../repository/session-repository';
 import { DockerSandbox } from '@/infrastructure/external/sandbox/docker-sandbox';
@@ -146,6 +147,30 @@ const handleToolEvent = async (
   return event;
 };
 
+const syncMessageAttachmentsToStorage = async (
+  sandbox: Sandbox,
+  sessionId: string,
+  event: MessageEvent,
+) => {
+  const newAttachments: StoredFile[] = [];
+
+  if (event.attachments && event.attachments.length > 0) {
+    for (const attachment of event.attachments) {
+      const file = await syncFileToStorage(
+        sandbox,
+        sessionId,
+        attachment.filepath,
+      );
+      if (file) {
+        newAttachments.push(file);
+      }
+    }
+  }
+
+  event.attachments = newAttachments;
+  return event;
+};
+
 export const chat = async function* (
   sessionId: string,
   message: string,
@@ -208,6 +233,15 @@ export const chat = async function* (
           continue;
         }
       } else if (event instanceof MessageEvent) {
+        const newEvent = await syncMessageAttachmentsToStorage(
+          sandbox,
+          sessionId,
+          event,
+        );
+        if (newEvent) {
+          yield newEvent;
+          continue;
+        }
       }
       yield event;
     }

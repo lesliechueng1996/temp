@@ -19,7 +19,7 @@ const app = new Hono().basePath('/api');
 
 app.onError((err, c) => {
   if (err instanceof BaseException) {
-    logger.error('App error occurred', { error: err });
+    logger.error('App error occurred {error}', { error: err });
     return c.json(
       createErrorResponse(err.code, err.message),
       err.code as ContentfulStatusCode,
@@ -27,11 +27,11 @@ app.onError((err, c) => {
   }
 
   if (err instanceof HTTPException) {
-    logger.error('HTTP error occurred', { error: err });
+    logger.error('HTTP error occurred {error}', { error: err });
     return c.json(createErrorResponse(err.status, err.message), err.status);
   }
 
-  logger.error('Unknown error occurred', { error: err });
+  logger.error('Unknown error occurred {error}', { error: err });
   return c.json(createErrorResponse(500, 'Internal Server Error'), 500);
 });
 
@@ -43,7 +43,7 @@ app.use(async (_, next) => {
         'Automatically extended timeout by 3 minutes because of keep-alive.',
       );
     } catch (error) {
-      logger.error('Failed to extend timeout because of keep-alive.', {
+      logger.error('Failed to extend timeout because of keep-alive. {error}', {
         error,
       });
     }
@@ -61,6 +61,8 @@ serve(
     port: 8081,
   },
   (info) => {
-    logger.info(`Server is running on http://localhost:${info.port}`);
+    logger.info('Server is running on http://localhost:{port}', {
+      port: info.port,
+    });
   },
 );

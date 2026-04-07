@@ -63,7 +63,9 @@ export class PlannerReActFlow implements BaseFlow {
       jsonParser,
       tools: [],
     });
-    logger.info(`Planner agent initialized, sessionId: ${sessionId}`);
+    logger.info('Planner agent initialized, sessionId: {sessionId}', {
+      sessionId,
+    });
 
     this.reactAgent = new ReActAgent({
       sessionId,
@@ -72,7 +74,9 @@ export class PlannerReActFlow implements BaseFlow {
       jsonParser,
       tools,
     });
-    logger.info(`ReAct agent initialized, sessionId: ${sessionId}`);
+    logger.info('ReAct agent initialized, sessionId: {sessionId}', {
+      sessionId,
+    });
   }
 
   async *invoke(message: Message): AsyncGenerator<Event> {

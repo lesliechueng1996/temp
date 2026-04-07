@@ -82,7 +82,9 @@ export class ReActAgent extends BaseAgent {
 
     for await (const event of this.invoke(query)) {
       if (event.type === 'message') {
-        logger.info(`ReAct agent summarized, message: ${event.message}`);
+        logger.info('ReAct agent summarized, message: {message}', {
+          message: event.message,
+        });
         const parsedObj = this.jsonParser.parse(
           event.message,
         ) as Partial<Message>;

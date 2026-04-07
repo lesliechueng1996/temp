@@ -148,7 +148,9 @@ export class BaseAgent {
           });
 
           if (message.type !== 'ai') {
-            logger.warn(`Unexpected message type: ${message.type}`);
+            logger.warn('Unexpected message type: {type}', {
+              type: message.type,
+            });
             return {
               messages: [...pendingRetryMessages, message],
             };

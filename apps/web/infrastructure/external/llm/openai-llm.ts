@@ -1,4 +1,4 @@
-import { AIMessage, type BaseMessage } from '@langchain/core/messages';
+import type { AIMessage, BaseMessage } from '@langchain/core/messages';
 import type { StructuredToolInterface } from '@langchain/core/tools';
 import { ChatOpenAI, type ChatOpenAICallOptions } from '@langchain/openai';
 import type { ClientOptions } from 'openai';

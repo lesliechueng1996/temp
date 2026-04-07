@@ -272,33 +272,33 @@ export const execCommand = async (
       shell.execDir = execDir;
       shell.output = '';
       shell.addConsoleRecord(new ConsoleRecord(psl, command, ''));
+    }
 
-      const waitResult = await waitForProcess(sessionId, 5);
-      if (waitResult.returnCode !== null) {
-        logger.info('Process finished: {sessionId}, returnCode: {returnCode}', {
-          sessionId,
-          returnCode: waitResult.returnCode,
-        });
+    const waitResult = await waitForProcess(sessionId, 5);
+    if (waitResult.returnCode !== null) {
+      logger.info('Process finished: {sessionId}, returnCode: {returnCode}', {
+        sessionId,
+        returnCode: waitResult.returnCode,
+      });
 
-        const viewResult = viewShell(sessionId);
-
-        return new ShellExecResult(
-          sessionId,
-          command,
-          ShellStatus.COMPLETED,
-          waitResult.returnCode,
-          viewResult.output,
-        );
-      }
+      const viewResult = viewShell(sessionId);
 
       return new ShellExecResult(
         sessionId,
         command,
-        ShellStatus.RUNNING,
-        null,
-        '',
+        ShellStatus.COMPLETED,
+        waitResult.returnCode,
+        viewResult.output,
       );
     }
+
+    return new ShellExecResult(
+      sessionId,
+      command,
+      ShellStatus.RUNNING,
+      null,
+      '',
+    );
   } catch (error) {
     logger.error(
       'Error executing command: {command} in {execDir} with sessionId: {sessionId}',

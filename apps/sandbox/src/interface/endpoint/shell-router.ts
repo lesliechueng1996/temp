@@ -44,7 +44,7 @@ shellRouter.post(
 );
 
 shellRouter.post(
-  '/wai-for-process',
+  '/wait-for-process',
   zValidator('json', waitForProcessRequestSchema),
   async (c) => {
     const { sessionId, seconds } = c.req.valid('json');
