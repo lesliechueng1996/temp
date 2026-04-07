@@ -40,8 +40,9 @@ export class DockerSandbox implements Sandbox {
   constructor(
     readonly ip: string | null = null,
     private readonly containerName: string | null = null,
+    connectPort: number = 8081,
   ) {
-    this.baseUrl = `http://${ip}:8081/api`;
+    this.baseUrl = `http://${ip}:${connectPort}/api`;
   }
 
   get id(): string {
@@ -57,6 +58,29 @@ export class DockerSandbox implements Sandbox {
           return network.IPAddress;
         }
       }
+    }
+    return null;
+  }
+
+  /**
+   * Prefer host-published port (Docker Desktop Mac/Win cannot reach bridge IPs from the host).
+   * Falls back to container IP + 8081 (typical Linux host ↔ container on bridge).
+   */
+  static async getConnectionEndpoint(container: Container): Promise<{
+    host: string;
+    port: number;
+  } | null> {
+    const inspect = await container.inspect();
+    const published = inspect.NetworkSettings.Ports?.['8081/tcp'];
+    const hostPort = published?.[0]?.HostPort;
+    if (hostPort) {
+      const connectHost =
+        process.env.SANDBOX_CONNECT_HOST?.trim() || '127.0.0.1';
+      return { host: connectHost, port: parseInt(hostPort, 10) };
+    }
+    const ip = await DockerSandbox.getContainerIp(container);
+    if (ip) {
+      return { host: ip, port: 8081 };
     }
     return null;
   }
@@ -81,28 +105,40 @@ export class DockerSandbox implements Sandbox {
         NO_PROXY: process.env.SANDBOX_NO_PROXY,
       };
       const docker = createDockerClient();
-      const config: ContainerCreateOptions = {
-        Image: image,
-        name: containerName,
-        Env: Object.entries(env).map(([key, value]) => `${key}=${value}`),
-        HostConfig: {
-          AutoRemove: true,
+      const hostConfig: NonNullable<ContainerCreateOptions['HostConfig']> = {
+        AutoRemove: true,
+        PortBindings: {
+          '8081/tcp': [{ HostPort: '' }],
         },
       };
       const sandboxNetwork = process.env.SANDBOX_NETWORK;
       if (sandboxNetwork) {
-        config.HostConfig = {
-          ...config.HostConfig,
-          NetworkMode: sandboxNetwork,
-        };
+        hostConfig.NetworkMode = sandboxNetwork;
       }
+      const config: ContainerCreateOptions = {
+        Image: image,
+        name: containerName,
+        ExposedPorts: { '8081/tcp': {} },
+        Env: Object.entries(env).map(([key, value]) => `${key}=${value}`),
+        HostConfig: hostConfig,
+      };
       const container = await docker.createContainer(config);
       await container.start();
 
-      const ip = await DockerSandbox.getContainerIp(container);
-      logger.info('Sandbox created, ip: {ip}', { ip });
+      const endpoint = await DockerSandbox.getConnectionEndpoint(container);
+      if (!endpoint) {
+        throw new Error('Could not resolve sandbox host/port after start');
+      }
+      logger.info('Sandbox created, endpoint: {host}:{port}', {
+        host: endpoint.host,
+        port: endpoint.port,
+      });
 
-      return new DockerSandbox(ip, containerName);
+      return new DockerSandbox(
+        endpoint.host,
+        containerName,
+        endpoint.port,
+      );
     } catch (err) {
       logger.error('Error creating sandbox task: {error}', { error: err });
       throw err;
@@ -146,8 +182,11 @@ export class DockerSandbox implements Sandbox {
 
     const docker = createDockerClient();
     const container = docker.getContainer(id);
-    const ip = await DockerSandbox.getContainerIp(container);
-    return new DockerSandbox(ip, id);
+    const endpoint = await DockerSandbox.getConnectionEndpoint(container);
+    if (!endpoint) {
+      throw new Error(`Could not resolve sandbox connection for container ${id}`);
+    }
+    return new DockerSandbox(endpoint.host, id, endpoint.port);
   }
 
   async ensureSandbox(): Promise<void> {

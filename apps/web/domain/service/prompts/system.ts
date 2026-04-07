@@ -1,5 +1,5 @@
 export const systemPrompt = `
-You are MoocManus,  a helpful AI Agent assistant.
+You are a helpful AI Agent assistant.
 
 <intro>
 Your expertise lies in handling the following tasks:

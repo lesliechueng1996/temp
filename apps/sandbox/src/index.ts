@@ -8,7 +8,10 @@ import shellRouter from './interface/endpoint/shell-router.js';
 import { BaseException } from './interface/exception/index.js';
 import { createErrorResponse } from './interface/schema/base.js';
 import statusRouter from './interface/endpoint/status-router.js';
-// import supervisorRouter from './interface/endpoint/supervisor-router.js';
+import {
+  extendTimeout,
+  isTimeoutActive,
+} from './service/keep-alive-service.js';
 
 await initLogger();
 
@@ -32,10 +35,25 @@ app.onError((err, c) => {
   return c.json(createErrorResponse(500, 'Internal Server Error'), 500);
 });
 
+app.use(async (_, next) => {
+  if (!!process.env.SERVER_TIMEOUT_MINUTES && isTimeoutActive()) {
+    try {
+      extendTimeout(3);
+      logger.info(
+        'Automatically extended timeout by 3 minutes because of keep-alive.',
+      );
+    } catch (error) {
+      logger.error('Failed to extend timeout because of keep-alive.', {
+        error,
+      });
+    }
+  }
+  await next();
+});
+
 app.route('/shell', shellRouter);
 app.route('/file', fileRouter);
 app.route('/status', statusRouter);
-// app.route('/supervisor', supervisorRouter);
 
 serve(
   {
