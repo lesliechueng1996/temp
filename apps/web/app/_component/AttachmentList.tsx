@@ -1,4 +1,4 @@
-import { cn } from '@/lib/utils';
+import { cn, formatFileSize } from '@/lib/utils';
 import { FileIcon } from 'lucide-react';
 
 export type FileInfo = {
@@ -13,19 +13,11 @@ type Props = {
   attachments: Array<FileInfo>;
 };
 
-const formatFileSize = (size: number) => {
-  if (size < 1024) {
-    return `${size} B`;
-  }
-  if (size < 1024 * 1024) {
-    return `${(size / 1024).toFixed(2)} KB`;
-  }
-  return `${(size / 1024 / 1024).toFixed(2)} MB`;
-};
-
 const AttachmentList = ({ className, attachments }: Props) => {
   return (
-    <div className={cn(className, 'w-full flex gap-2 overflow-x-auto flex-nowrap')}>
+    <div
+      className={cn(className, 'w-full flex gap-2 overflow-x-auto flex-nowrap')}
+    >
       {attachments.map((attachment) => (
         <div
           key={attachment.id}

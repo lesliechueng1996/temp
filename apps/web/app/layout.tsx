@@ -3,6 +3,7 @@ import './globals.css';
 import { Geist } from 'next/font/google';
 import { cn } from '@/lib/utils';
 import Sidebar from './_component/Sidebar';
+import { Toaster } from '@/components/ui/sonner';
 
 const geist = Geist({ subsets: ['latin'], variable: '--font-sans' });
 
@@ -21,6 +22,7 @@ export default function RootLayout({
       <body className="h-screen w-screen flex">
         <Sidebar className="shrink-0" />
         <main className="flex-1">{children}</main>
+        <Toaster />
       </body>
     </html>
   );

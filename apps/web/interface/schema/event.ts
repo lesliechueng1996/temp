@@ -25,7 +25,7 @@ class BaseEventData {
   }
 }
 
-class MessageEventData extends BaseEventData {
+export class MessageEventData extends BaseEventData {
   role: 'user' | 'assistant';
   message: string;
   attachments: File[];
@@ -63,7 +63,7 @@ class MessageSSEEvent {
   }
 }
 
-class TitleEventData extends BaseEventData {
+export class TitleEventData extends BaseEventData {
   title: string;
 
   constructor(
@@ -95,7 +95,7 @@ class TitleSSEEvent {
   }
 }
 
-class StepEventData extends BaseEventData {
+export class StepEventData extends BaseEventData {
   id: string;
   status: ExecutionStatus;
   description: string;
@@ -133,7 +133,7 @@ class StepSSEEvent {
   }
 }
 
-class PlanEventData extends BaseEventData {
+export class PlanEventData extends BaseEventData {
   steps: StepEventData[];
 
   constructor(
@@ -167,7 +167,7 @@ class PlanSSEEvent {
   }
 }
 
-class ToolEventData extends BaseEventData {
+export class ToolEventData extends BaseEventData {
   toolCallId: string;
   name: string;
   status: ToolEventStatus;
@@ -214,7 +214,7 @@ class ToolSSEEvent {
   }
 }
 
-class ErrorEventData extends BaseEventData {
+export class ErrorEventData extends BaseEventData {
   error: string;
 
   constructor(
@@ -246,7 +246,7 @@ class ErrorSSEEvent {
   }
 }
 
-class DoneSSEEvent {
+export class DoneSSEEvent {
   event = 'done';
   data: BaseEventData;
 

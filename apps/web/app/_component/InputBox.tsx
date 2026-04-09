@@ -14,8 +14,14 @@ type UploadFileResponse = {
   } | null;
 };
 
-const InputBox = () => {
+type Props = {
+  isRunning: boolean;
+  onSendMessage: (message: string, attachments: FileInfo[]) => void;
+};
+
+const InputBox = ({ isRunning, onSendMessage }: Props) => {
   const [attachments, setAttachments] = useState<FileInfo[]>([]);
+  const [message, setMessage] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const uploadAttachment = async (attachment: FileInfo) => {
@@ -90,6 +96,14 @@ const InputBox = () => {
     event.target.value = '';
   };
 
+  const isUploading = attachments.some((attachment) => attachment.isUploading);
+
+  const handleSendMessage = () => {
+    onSendMessage(message, attachments);
+    setMessage('');
+    setAttachments([]);
+  };
+
   return (
     <div className="w-full min-h-36 max-h-96 shadow-sm rounded-2xl bg-background p-4 flex flex-col">
       {attachments.length > 0 && <AttachmentList attachments={attachments} />}
@@ -97,6 +111,17 @@ const InputBox = () => {
       <Textarea
         className="border-none resize-none flex-1 placeholder:text-chart-2 focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0"
         placeholder="Please ask question ..."
+        value={message}
+        onChange={(e) => setMessage(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.nativeEvent.isComposing || e.keyCode === 229) {
+            return;
+          }
+          if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            handleSendMessage();
+          }
+        }}
       />
 
       <div className="flex items-center justify-between shrink-0">
@@ -106,6 +131,7 @@ const InputBox = () => {
           size="icon"
           className="rounded-full"
           onClick={handlePickFiles}
+          disabled={isUploading || isRunning}
         >
           <PaperclipIcon className="size-4" />
         </Button>
@@ -116,7 +142,13 @@ const InputBox = () => {
           className="hidden"
           onChange={handleFileChange}
         />
-        <Button variant="outline" size="icon" className="rounded-full">
+        <Button
+          variant="outline"
+          size="icon"
+          className="rounded-full"
+          disabled={isUploading || isRunning}
+          onClick={handleSendMessage}
+        >
           <MoveUpIcon className="size-4" />
         </Button>
       </div>

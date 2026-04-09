@@ -100,7 +100,7 @@ function createFileTools(sandbox: Sandbox): StructuredToolInterface[] {
     {
       name: 'file_read',
       description:
-        'Read file content. Used to check file content, analyze logs, or read configuration files.',
+        'Read file text content. Used to check file content, analyze logs, or read configuration files. Do not use it to read binary files.',
       schema: fileReadSchema,
     },
   );

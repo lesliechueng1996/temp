@@ -69,8 +69,9 @@ const syncFileToStorage = async (
     });
     const uploadFile = await fileStorage.uploadFile(webFile);
 
-    uploadFile.filepath = filepath;
     sessionRepository.addFile(sessionId, uploadFile);
+
+    return uploadFile;
   } catch (error) {
     logger.error('Error syncing file {filepath} to storage: {error}', {
       filepath,

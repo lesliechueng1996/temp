@@ -10,12 +10,14 @@ import {
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 
-type Plan = {
-  steps: Array<{
-    id: string;
-    status: string;
-    description: string;
-  }>;
+export type Step = {
+  id: string;
+  status: string;
+  description: string;
+};
+
+export type Plan = {
+  steps: Array<Step>;
 };
 
 type Props = {

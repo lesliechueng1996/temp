@@ -15,7 +15,7 @@ const Main = ({ className }: Props) => {
     >
       <div className="w-3xl space-y-4">
         <h1 className="text-2xl w-full">Hello Team</h1>
-        <InputBox />
+        <InputBox isRunning={false} onSendMessage={() => {}} />
       </div>
     </div>
   );
