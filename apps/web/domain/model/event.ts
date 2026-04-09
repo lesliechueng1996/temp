@@ -87,7 +87,7 @@ export class FileToolContent {
   constructor(readonly content: string) {}
 }
 
-type ToolContent = ShellToolContent | FileToolContent;
+export type ToolContent = ShellToolContent | FileToolContent;
 
 export enum ToolEventStatus {
   CALLING = 'calling',
@@ -123,15 +123,6 @@ export class ToolEvent extends BaseEvent {
   }
 }
 
-export class WaitEvent extends BaseEvent {
-  type: 'wait';
-
-  constructor() {
-    super();
-    this.type = 'wait';
-  }
-}
-
 export class ErrorEvent extends BaseEvent {
   type: 'error';
   error: string;
@@ -158,6 +149,5 @@ export type Event =
   | StepEvent
   | MessageEvent
   | ToolEvent
-  | WaitEvent
   | ErrorEvent
   | DoneEvent;
